@@ -1,0 +1,9 @@
+# Generated subdirectories
+/log/
+/results/
+/tmp_check/
+/pgdata/
+*.o
+*.so
+*.dylib
+/.idea/
