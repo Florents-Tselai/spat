@@ -1,0 +1,4 @@
+comment = 'blabla bla'
+default_version = '0.1.0'
+module_pathname = '$libdir/spat'
+relocatable = true

@@ -1,0 +1,36 @@
+SELECT set_val_in_shmem(1236);
+ set_val_in_shmem 
+------------------
+ 
+(1 row)
+
+SELECT get_val_in_shmem();
+ get_val_in_shmem 
+------------------
+             1236
+(1 row)
+
+SELECT spat_set('k1', 'myval');
+ spat_set 
+----------
+        1
+(1 row)
+
+SELECT spat_set('k1', 'myval');
+ spat_set 
+----------
+        1
+(1 row)
+
+SELECT spat_set('k2', 'myval');
+ spat_set 
+----------
+        2
+(1 row)
+
+SELECT store_size();
+ store_size 
+------------
+          2
+(1 row)
+
