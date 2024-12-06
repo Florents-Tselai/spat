@@ -31,7 +31,7 @@ PG_MODULE_MAGIC;
 #define SPAT_NAME_DEFAULT "spat-default"
 
 /* GUC variables */
-static const char *g_spat_db_name = NULL;
+static char *g_spat_db_name = NULL;
 
 typedef struct SpatDBStruct
 {
@@ -67,7 +67,7 @@ void _PG_init()
 typedef struct HashEntry
 {
 	dsa_pointer	key;
-	int			value;
+	int			value; /* this should be a pointer for most values */
 } HashEntry;
 
 static const dshash_parameters hash_params = {
