@@ -1,7 +1,12 @@
 /*--------------------------------------------------------------------------
  *
  * spat.c
- *	  Does this and that
+ *	  Redis-like in-memory database embedded in Postgres
+ *
+ * A SpatDB is just a segment of Postgres' memory addressable by a name.
+ * It uses a dshash_table to store its data.
+ *
+ * Keys are always text, while value can have various types
  *
  * Copyright (c) 2024, Florents Tselai
  *
@@ -33,7 +38,7 @@ PG_MODULE_MAGIC;
 /* GUC variables */
 static char *g_spat_db_name = NULL;
 
-typedef struct SpatDBStruct
+typedef struct SpatDB
 {
 	LWLock			lck;
 
@@ -46,16 +51,15 @@ typedef struct SpatDBStruct
 	dsa_pointer		name;
 	TimestampTz		created_at;
 	int				val;
-} SpatDBStruct;
+} SpatDB;
 
-static SpatDBStruct *g_spat_db;
-
+static SpatDB *g_spat_db;
 
 void _PG_init()
 {
 	DefineCustomStringVariable("spat.db",
-							   "Working DB name",
-							   NULL,
+							   "Current DB name",
+							   "long desc here",
 							   &g_spat_db_name,
 							   SPAT_NAME_DEFAULT,
 							   PGC_USERSET, 0,
@@ -64,15 +68,42 @@ void _PG_init()
 	MarkGUCPrefixReserved("spat");
 }
 
-typedef struct HashEntry
+typedef enum valueType
+{
+	SPAT_INVALID	= -1,
+	SPAT_NULL		= 0,
+	SPAT_INT		= 1,
+	SPAT_STRING		= 2
+} valueType;
+
+static char* typ_name(valueType typ)
+{
+	switch (typ)
+	{
+		case SPAT_INVALID:
+			return "invalid";
+		case SPAT_NULL:
+			return "null";
+		case SPAT_INT:
+			return "integer";
+		case SPAT_STRING:
+			return "string";
+		default:
+			return "unknown";
+
+	}
+}
+
+typedef struct SpatDBEntry
 {
 	dsa_pointer	key;
+	valueType	typ;
 	int			value; /* this should be a pointer for most values */
-} HashEntry;
+} SpatDBEntry;
 
-static const dshash_parameters hash_params = {
+static const dshash_parameters default_hash_params = {
 	.key_size = sizeof(dsa_pointer),
-	.entry_size = sizeof(HashEntry),
+	.entry_size = sizeof(SpatDBEntry),
 	.compare_function = dshash_memcmp,
 	.hash_function = dshash_memhash,
 	.copy_function = dshash_memcpy
@@ -81,13 +112,14 @@ static const dshash_parameters hash_params = {
 static void
 spat_init_shmem(void *ptr)
 {
-	SpatDBStruct *db = (SpatDBStruct *) ptr;
+	SpatDB *db = (SpatDB *) ptr;
 
 	int tranche_id = LWLockNewTrancheId();
 	LWLockInitialize(&db->lck, tranche_id);
 
 	dsa_area *dsa = dsa_create(tranche_id);
 	dsa_pin(dsa);
+	//dsa_pin_mapping() TOOD: maybe?
 
 	db->dsa_handle = dsa_get_handle(dsa);
 
@@ -99,8 +131,7 @@ spat_init_shmem(void *ptr)
 
 	db->created_at = GetCurrentTimestamp();
 
-	/* Create an htab and associate it's handle with the DB */
-	dshash_table *htab = dshash_create(dsa, &hash_params, NULL);
+	dshash_table *htab = dshash_create(dsa, &default_hash_params, NULL);
 	db->htab_handle = dshash_get_hash_table_handle(htab);
 
 	dsa_detach(dsa);
@@ -112,11 +143,10 @@ spat_attach_shmem(void)
 	bool		found;
 
 	g_spat_db = GetNamedDSMSegment(g_spat_db_name,
-								   sizeof(SpatDBStruct),
+								   sizeof(SpatDB),
 								   spat_init_shmem,
 								   &found);
 	LWLockRegisterTranche(g_spat_db->lck.tranche, g_spat_db_name);
-
 }
 
 PG_FUNCTION_INFO_V1(spat_db_name);
@@ -178,7 +208,6 @@ spat_db_set_int(PG_FUNCTION_ARGS)
 	dshash_table             *htab;
 	bool                     found;
 
-	/* Attach to shared memory and acquire the lock */
 	spat_attach_shmem();
 	LWLockAcquire(&g_spat_db->lck, LW_SHARED);
 	dsa_handle = g_spat_db->dsa_handle;
@@ -186,7 +215,7 @@ spat_db_set_int(PG_FUNCTION_ARGS)
 	LWLockRelease(&g_spat_db->lck);
 
 	dsa = dsa_attach(dsa_handle);
-	htab = dshash_attach(dsa, &hash_params, htab_handle, NULL);
+	htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
 
 	/* Allocate memory for the key on DSA */
 	dsa_pointer key_dsa = dsa_allocate(dsa, strlen(key) + 1);  // +1 for the null terminator
@@ -197,7 +226,7 @@ spat_db_set_int(PG_FUNCTION_ARGS)
 	strcpy(dsa_get_address(dsa, key_dsa), key);
 
 	/* Insert or find the entry in the hash table */
-	HashEntry *entry = dshash_find_or_insert(htab, dsa_get_address(dsa, key_dsa), &found);
+	SpatDBEntry *entry = dshash_find_or_insert(htab, dsa_get_address(dsa, key_dsa), &found);
 	if (entry == NULL)
 		elog(ERROR, "could not find or insert entry");
 
@@ -208,7 +237,8 @@ spat_db_set_int(PG_FUNCTION_ARGS)
 	else
 	{
 		entry->value = value;
-		elog(INFO, "new entry for key=%s", key);  // Log using 'key' instead of raw pointer
+		entry->typ = SPAT_INT;
+		elog(INFO, "new entry for key=%s", key);
 	}
 
 	/* Release the lock on the entry (correct usage of release_lock) */
@@ -237,7 +267,7 @@ spat_db_get_int(PG_FUNCTION_ARGS)
 	LWLockRelease(&g_spat_db->lck);
 
 	dsa = dsa_attach(dsa_handle);
-	htab = dshash_attach(dsa, &hash_params, htab_handle, NULL);
+	htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
 
 	/* Allocate memory for the key on DSA */
 	dsa_pointer key_dsa = dsa_allocate(dsa, strlen(key) + 1);  // +1 for the null terminator
@@ -246,7 +276,7 @@ spat_db_get_int(PG_FUNCTION_ARGS)
 
 	strcpy(dsa_get_address(dsa, key_dsa), key);
 
-	HashEntry *entry = dshash_find(htab, dsa_get_address(dsa, key_dsa), false);
+	SpatDBEntry *entry = dshash_find(htab, dsa_get_address(dsa, key_dsa), false);
 	if (entry)
 	{
 		found = true;
@@ -265,4 +295,52 @@ spat_db_get_int(PG_FUNCTION_ARGS)
 		PG_RETURN_INT32(result);
 	else
 		PG_RETURN_NULL();
+}
+
+PG_FUNCTION_INFO_V1(spat_db_type);
+Datum
+spat_db_type(PG_FUNCTION_ARGS)
+{
+	char		*key   = text_to_cstring(PG_GETARG_TEXT_PP(0));
+	valueType   result = SPAT_INVALID;
+
+	dsa_handle               dsa_handle;
+	dsa_area                 *dsa;
+	dshash_table_handle      htab_handle;
+	dshash_table             *htab;
+	bool                     found;
+
+	spat_attach_shmem();
+	LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+	dsa_handle = g_spat_db->dsa_handle;
+	htab_handle = g_spat_db->htab_handle;
+	LWLockRelease(&g_spat_db->lck);
+
+	dsa = dsa_attach(dsa_handle);
+	htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
+
+	/* Allocate memory for the key on DSA */
+	dsa_pointer key_dsa = dsa_allocate(dsa, strlen(key) + 1);  // +1 for the null terminator
+	if (key_dsa == InvalidDsaPointer)
+		elog(ERROR, "Could not allocate DSA memory for key=%s", key);
+
+	strcpy(dsa_get_address(dsa, key_dsa), key);
+
+	SpatDBEntry *entry = dshash_find(htab, dsa_get_address(dsa, key_dsa), false);
+
+	if (entry) {
+		found = true;
+		result = entry->typ;
+		dshash_release_lock(htab, entry);
+	}
+
+	else {
+		found = false;
+		dsa_free(dsa, key_dsa);
+	}
+
+	dsa_detach(dsa);
+
+	PG_RETURN_TEXT_P(cstring_to_text(typ_name(result)));
+
 }

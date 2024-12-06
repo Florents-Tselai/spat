@@ -2,7 +2,7 @@ EXTENSION = spat
 
 MODULE_big = $(EXTENSION)
 OBJS = spat.o
-PGFILEDESC = "Description here"
+PGFILEDESC = "Redis-like in-memory database embedded in Postgres"
 
 DATA = spat--0.1.0.sql
 

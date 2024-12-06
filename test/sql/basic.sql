@@ -13,3 +13,6 @@ SELECT spat_db_get_int('key1');
 SELECT spat_db_get_int('keaaaaay1');
 SELECT spat_db_set_int('keaaaaay1', 1000);
 SELECT spat_db_get_int('keaaaaay1');
+
+select spat_db_type('key1');
+select spat_db_type('kgdsfgdsfhdfey1');
