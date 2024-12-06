@@ -1,0 +1,66 @@
+SELECT spat_db_name(); -- spat-default
+ spat_db_name 
+--------------
+ spat-default
+(1 row)
+
+-- switch to a new db
+SET spat.db = 'test-spat';
+SELECT spat_db_name(); -- test-spat
+ spat_db_name 
+--------------
+ test-spat
+(1 row)
+
+SELECT spat_db_created_at() NOTNULL;
+ ?column? 
+----------
+ t
+(1 row)
+
+-- switch back to the default to preserve my sanity when copy-pasting
+SET spat.db = 'spat-default';
+SELECT spat_db_set_int('key1', 1);
+INFO:  new entry for key=key1
+ spat_db_set_int 
+-----------------
+ 
+(1 row)
+
+SELECT spat_db_get_int('key1');
+ spat_db_get_int 
+-----------------
+               1
+(1 row)
+
+SELECT spat_db_get_int('keaaaaay1');
+ spat_db_get_int 
+-----------------
+                
+(1 row)
+
+SELECT spat_db_set_int('keaaaaay1', 1000);
+INFO:  new entry for key=keaaaaay1
+ spat_db_set_int 
+-----------------
+ 
+(1 row)
+
+SELECT spat_db_get_int('keaaaaay1');
+ spat_db_get_int 
+-----------------
+            1000
+(1 row)
+
+select spat_db_type('key1');
+ spat_db_type 
+--------------
+ integer
+(1 row)
+
+select spat_db_type('kgdsfgdsfhdfey1');
+ spat_db_type 
+--------------
+ invalid
+(1 row)
+
