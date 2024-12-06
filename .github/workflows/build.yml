@@ -23,7 +23,7 @@ jobs:
           postgres-version: ${{ matrix.postgres }}
           dev-files: true
 
-      - run: make
+      - run: make PG_CFLAGS=-Wno-declaration-after-statement -Wno-format-security
 
       - run: sudo make install
 
