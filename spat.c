@@ -4,9 +4,11 @@
  *	  Redis-like in-memory database embedded in Postgres
  *
  * A SpatDB is just a segment of Postgres' memory addressable by a name.
- * It uses a dshash_table to store its data.
+ * Its data model is key-value.
+ * Keys are strings, values can have different types (data structures)
  *
- * Keys are always text, while value can have various types
+ * It uses a dshash_table to store its internal.
+ *
  *
  * Copyright (c) 2024, Florents Tselai
  *
@@ -40,20 +42,19 @@ static char *g_spat_db_name = NULL;
 
 typedef struct SpatDB
 {
-	LWLock			lck;
+	LWLock				lck;
 
-	dsa_handle		dsa_handle; /* dsa_handle to DSA area associated with this registry */
+	dsa_handle			dsa_handle;		/* dsa_handle to DSA area associated with this DB */
+	dshash_table_handle	htab_handle;	/* htab_handle pointing to the underlying dshash_table */
 
-	/* Storage area */
-	dshash_table_handle	htab_handle;
-
-	/* Metadata about the db itself */
-	dsa_pointer		name;
-	TimestampTz		created_at;
-	int				val;
+	dsa_pointer			name;			/* Metadata about the db itself */
+	TimestampTz			created_at;
+	int					val;
 } SpatDB;
 
-static SpatDB *g_spat_db;
+/* -------------------- Global state -------------------- */
+
+static SpatDB *g_spat_db; /* Current (working) database */
 
 void _PG_init()
 {
@@ -75,6 +76,8 @@ typedef enum valueType
 	SPAT_INT		= 1,
 	SPAT_STRING		= 2
 } valueType;
+
+#define TYPE_IS_SCALAR(t) ((t) == SPAT_INT || (t) == SPAT_NULL)
 
 static char* typ_name(valueType typ)
 {
@@ -242,6 +245,64 @@ spat_db_set_int(PG_FUNCTION_ARGS)
 	}
 
 	/* Release the lock on the entry (correct usage of release_lock) */
+	dshash_release_lock(htab, entry);
+
+	dsa_detach(dsa);
+	PG_RETURN_VOID();
+}
+
+PG_FUNCTION_INFO_V1(spat_db_set_string);
+Datum
+spat_db_set_string(PG_FUNCTION_ARGS)
+{
+	char    *key        = text_to_cstring(PG_GETARG_TEXT_PP(0));
+	char    *value      = text_to_cstring(PG_GETARG_TEXT_PP(1));
+
+	dsa_handle           dsa_handle;
+	dsa_area             *dsa;
+	dshash_table_handle  htab_handle;
+	dshash_table         *htab;
+	bool                 found;
+
+	spat_attach_shmem();
+	LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+	dsa_handle = g_spat_db->dsa_handle;
+	htab_handle = g_spat_db->htab_handle;
+	LWLockRelease(&g_spat_db->lck);
+
+	dsa = dsa_attach(dsa_handle);
+	htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
+
+	/* Allocate memory for the key on DSA */
+	dsa_pointer key_dsa = dsa_allocate(dsa, strlen(key) + 1);  // +1 for the null terminator
+	if (key_dsa == InvalidDsaPointer)
+		elog(ERROR, "Could not allocate DSA memory for key=%s", key);
+
+	/* Copy the key into the allocated memory */
+	strcpy(dsa_get_address(dsa, key_dsa), key);
+
+	/* Insert or find the entry in the hash table */
+	SpatDBEntry *entry = dshash_find_or_insert(htab, dsa_get_address(dsa, key_dsa), &found);
+	if (entry == NULL)
+		elog(ERROR, "could not find or insert entry");
+
+	if (found)
+	{
+		/* If the type is scalar we need to allocate
+		 * If not we need to free the previ
+		 */
+		if (TYPE_IS_SCALAR(entry->typ))
+		{
+		}
+	}
+	else
+	{
+		entry->value = value;
+		entry->typ = SPAT_INT;
+		elog(INFO, "new entry for key=%s", key);
+	}
+
+	Assert(entry);
 	dshash_release_lock(htab, entry);
 
 	dsa_detach(dsa);

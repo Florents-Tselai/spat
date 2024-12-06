@@ -16,3 +16,9 @@ SELECT spat_db_get_int('keaaaaay1');
 
 select spat_db_type('key1');
 select spat_db_type('kgdsfgdsfhdfey1');
+
+/* Note this is a pre-existing key */
+SELECT spat_db_set_text('key1', 'key1111');
+select spat_db_type('key1');
+select spat_db_get_text('key1');
+

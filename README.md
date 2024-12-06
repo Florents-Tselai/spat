@@ -1,4 +1,9 @@
-# spat: Redis-like Data Structure Server in Postgres
+# spat: Redis-like in-memory database embedded in Postgres
+
+Redis is an in-memory database that persists on disk. 
+The data model is key-value, 
+but many different kind of values are supported: 
+Strings, Lists, Sets, Sorted Sets, Hashes, Streams, HyperLogLogs, Bitmaps
 
 **spat** is a data structure server embedded in Postgres.
 It offers a Redis-like interface, backed by Postgres Dynamic Shared Memory (DSM).
@@ -6,11 +11,12 @@ It offers a Redis-like interface, backed by Postgres Dynamic Shared Memory (DSM)
 
 ## Multiple Databases 
 
-You can toggle between different namespaces (= separate in-memory databases)
+You can toggle between different in-memory databases (namespaces really)
 
 ```tsql
-SET spat.name = 'mydb1';
+SET spat.name = 'db1';
 ```
+
 
 **spat** relies Postgres Dynamic Shared Memory Registry 
 introduced in Postgres 17 

@@ -14,7 +14,7 @@ PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
-# targets used for development only
+######### DEVELOPMENT #########
 
 PGDATA = ./pgdata
 PG_CTL = pg_ctl
@@ -28,4 +28,4 @@ stop-db:
 start-db:
 	postgres -D $(PGDATA)
 
-dev: restart-db clean all install installcheck
+dev: clean all install installcheck
