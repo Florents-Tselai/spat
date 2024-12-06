@@ -95,7 +95,7 @@ spat_init_shmem(void *ptr)
 	db->val = -1; /* Default value */
 
 	db->name = dsa_allocate0(dsa, SPAT_NAME_MAXSIZE); /* Allocate zeroed-out memory */
-	snprintf(dsa_get_address(dsa, db->name), SPAT_NAME_MAXSIZE, g_spat_db_name);
+	memcpy(dsa_get_address(dsa, db->name), g_spat_db_name, SPAT_NAME_MAXSIZE - 1);
 
 	db->created_at = GetCurrentTimestamp();
 
