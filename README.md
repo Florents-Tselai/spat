@@ -8,16 +8,27 @@ Strings, Lists, Sets, Sorted Sets, Hashes, Streams, HyperLogLogs, Bitmaps
 **spat** is a data structure server embedded in Postgres.
 It offers a Redis-like interface, backed by Postgres Dynamic Shared Memory (DSM).
 
+## Usage 
 
-## Multiple Databases 
+### Multiple Databases 
 
-You can toggle between different in-memory databases (namespaces really)
+You can switch between different databases (namespaces really),
+by setting the `spat.name` GUC in a session.
 
 ```tsql
 SET spat.name = 'db1';
 ```
 
+> [!WARNING]
+> Don't use this in production yet.
 
-**spat** relies Postgres Dynamic Shared Memory Registry 
-introduced in Postgres 17 
-(see [8b2bcf3f](https://github.com/postgres/postgres/commit/8b2bcf3f) - [discussion](https://www.postgresql.org/message-id/flat/20231205034647.GA2705267%40nathanxps13))
+> [!CAUTION]
+> You should assume that the data you cache, are visible
+> and accessible even between different users in the same database cluster.
+
+## Background
+
+Spat relies on the two following features of Postgres
+
+- PG10 Introduced dynamic shared memory areas (DSA) in [13df76a](https://github.com/postgres/postgres/commit/13df76a)
+- PG17 Introduced the dynamic shared memory registry in [8b2bcf3](https://github.com/postgres/postgres/commit/8b2bcf3)
