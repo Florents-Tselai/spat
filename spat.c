@@ -62,11 +62,20 @@ typedef enum valueType
 typedef struct SpatDBEntry
 {
 	dsa_pointer	key;		/* pointer to a text* allocated in dsa */
-	valueType	typ;
+	valueType	typ;		/* TODO: redundant now */
 
-	Datum		value;
+	Datum		value;		/* TODO: Redundant */
 
-	Oid			valtypid;	/* Oid of the Datum stored at valptr (default=InvalidOid) */
+	Oid			valtypid;	/* Oid of the Datum stored at valptr (default=InvalidOid).
+							 *
+							 * We need this to call get_typlenbyval to get typlen and tybval.
+							 * Both are needed to know how to copy a Datum into dsa,
+							 * and then how to interpret what's in that dsa position.
+							 *
+							 * In some occasions we may want align info as well.
+							 * If so, use get_typlenbyvalalign
+							 */
+
 	Size		valsz;		/* VARSIZE_ANY(value) */
 
 	dsa_pointer valptr;		/* pointer to an opaque Datum allocated in dsa (default=InvalidDsaPointer)
@@ -416,6 +425,9 @@ sset_generic(PG_FUNCTION_ARGS)
 
 	get_typlenbyval(valueTypeOid, &typLen, &typByVal);
 	elog(DEBUG1, "Value Type OID: %u, typByVal: %s, typLen: %d", valueTypeOid, typByVal, typLen);
+
+	if (!(valueTypeOid == TEXTOID))
+		elog(ERROR, "Unsupported value type oid=%d", valueTypeOid);
 
 	/* Begin processing */
 	spat_attach_shmem();
