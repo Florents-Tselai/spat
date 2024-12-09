@@ -1,57 +1,55 @@
 # spat: Redis-like in-memory database embedded in Postgres
 
-Redis is an in-memory database that persists on disk. 
-The data model is key-value, 
-but many different kind of values are supported: 
-Strings, Lists, Sets, Sorted Sets, Hashes, Streams, HyperLogLogs, Bitmaps
+**spat** is a Redis-like in-memory data structure server embedded in Postgres. 
+The data model is key-value, but many different kinds of values are supported.
 
-**spat** is a data structure server embedded in Postgres.
-It offers a Redis-like interface, backed by Postgres Dynamic Shared Memory (DSM).
+Data is stored in Postgres shared memory,
+thus, you don't need an external caching service,
+while at the same time, you can easily manage 
+your caching layer within your SQL queries.
 
 ## Usage 
 
-- `sset(key, value, ttl interval, nx bool, xx bool) → spval`
+`SSET(key, value, ttl interval, nx bool, xx bool) → spval`
 
-  Set key to hold the string value. If key already holds a value, it is overwritten, regardless of its type.
-  Any previous time to live associated with the key is discarded on successful SET operation.
-  `ttl` sets the TTL interval. 
-  `nx` only set the key if it does not already exist.
-  `xx` only set the key if already exists.
-  Returns the value.
+Set key to hold the string value. If key already holds a value, it is overwritten, regardless of its type.
+Any previous time to live associated with the key is discarded on successful SET operation.
+`ttl` sets the TTL interval. 
+`nx` only set the key if it does not already exist.
+`xx` only set the key if already exists.
+Returns the value.
 
-- `sp_db_size() → integer`
+`SP_DB_SIZE() → integer`
 
-  Returns the current number of entries in the database
+Returns the current number of entries in the database
 
-- `del(key) → boolean`
+`DEL(key) → boolean`
 
-  Remove an entry by key.  Returns true if the key was found and the corresponding entry was removed.
+Remove an entry by key.  Returns true if the key was found and the corresponding entry was removed.
 
-- `scan() → setof text`
+`SCAN() → setof text`
 
-  Iterates over the the key names in the database
+Iterates over the key names in the database
 
-- `pexpiretime(key) -> timestamptz`
+`PEXPIRETIME(key) → timestamptz`
 
-  Returns the expiration timestamp of a key 
+Returns the expiration timestamp of a key 
 
-- `ttl(key) -> interval`
+`TTL(key) → interval`
 
-  Returns the TTL interval of a key
+Returns the TTL interval of a key
 
-- `persist(key)`
+`PERSIST(key)`
 
-  Removes the expiration time of a key
+Removes the expiration time of a key
 
-- `exists(key) -> bool`
+`EXISTS(key) → bool`
 
-  Determines whether a key exists
+Determines whether a key exists
 
-- `scopy(key, key)`
+`SCOPY(key, key)`
 
-  Copies the value of a key to a new key
-
-### Expiration (TTL)
+Copies the value of a key to a new key
 
 ### Multiple Databases 
 
