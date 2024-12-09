@@ -40,6 +40,8 @@ CREATE TYPE spval;
 
 /* -------------------- GET -------------------- */
 
-
-
 -- CREATE FUNCTION get(text)  RETURNS spval AS 'MODULE_PATHNAME' LANGUAGE SQL;
+
+/* -------------------- DEL -------------------- */
+
+CREATE FUNCTION del(text) RETURNS bool AS 'MODULE_PATHNAME' LANGUAGE C;

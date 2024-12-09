@@ -10,6 +10,15 @@ It offers a Redis-like interface, backed by Postgres Dynamic Shared Memory (DSM)
 
 ## Usage 
 
+- `sp_db_size() -> integer`
+
+  Returns the current number of entries in the database
+
+- `del(text) -> boolean`
+
+  Remove an entry by key.  Returns true if the key was found and the corresponding entry was removed.
+  
+
 ### Multiple Databases 
 
 You can switch between different databases (namespaces really),

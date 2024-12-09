@@ -283,13 +283,13 @@ spat_db_set_int(PG_FUNCTION_ARGS)
 
 	if (found)
 	{
-		elog(INFO, "existing entry for key=%s", key);  // Log using 'key' instead of raw pointer
+		elog(DEBUG1, "existing entry for key=%s", key);  // Log using 'key' instead of raw pointer
 	}
 	else
 	{
 		entry->intvalue = value;
 		entry->typ = SPAT_INT;
-		elog(INFO, "new entry for key=%s", key);
+		elog(DEBUG1, "new entry for key=%s", key);
 	}
 
 	/* Release the lock on the entry (correct usage of release_lock) */
@@ -584,6 +584,59 @@ sset_generic(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(result);
 }
 
+PG_FUNCTION_INFO_V1(del);
+Datum
+del(PG_FUNCTION_ARGS)
+{
+	/* Input */
+	text 		*key 	= PG_GETARG_TEXT_PP(0);
+	Datum 		value 	= PG_GETARG_DATUM(1);
+	Interval	*ex 	= PG_ARGISNULL(2) ? NULL : PG_GETARG_INTERVAL_P(2);
+	bool		nx 		= PG_ARGISNULL(3) ? NULL : PG_GETARG_BOOL(3);
+	bool		xx 		= PG_ARGISNULL(4) ? NULL : PG_GETARG_BOOL(4);
+
+	/* Info about value */
+	bool		valueIsNull 	= PG_ARGISNULL(1);
+	Oid valueTypeOid;
+	bool valueTypByVal;
+	int16 valueTypLen;
+
+	/* Processing */
+	dsa_handle              dsa_handle;
+	dsa_pointer             dsa_key;
+	dsa_pointer				dsa_value;
+	dsa_area                *dsa;
+	dshash_table_handle     htab_handle;
+	dshash_table			*htab;
+	bool					exclusive = false; /* TODO: This depends on the xx / nx */
+	bool                    found;
+	SpatDBEntry				*entry;
+
+	/* Begin processing */
+	spat_attach_shmem();
+	LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+	dsa_handle = g_spat_db->dsa_handle;
+	htab_handle = g_spat_db->htab_handle;
+	LWLockRelease(&g_spat_db->lck);
+
+	/* in dsa territory now */
+	dsa = dsa_attach(dsa_handle);
+	htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
+
+	/* Allocate dsa space for key and copy it from local memory to that dsa*/
+	dsa_key = dsa_allocate(dsa, VARSIZE_ANY(key));
+	if (dsa_key == InvalidDsaPointer)
+		elog(ERROR, "Could not allocate DSA memory for key=%s", text_to_cstring(key));
+	memcpy(dsa_get_address(dsa, dsa_key), key, VARSIZE_ANY(key));
+
+	found = dshash_delete_key(htab, dsa_get_address(dsa, dsa_key));
+
+	/* leaving dsa territory */
+	dsa_detach(dsa);
+
+	PG_RETURN_BOOL(found);
+}
+
 PG_FUNCTION_INFO_V1(get);
 Datum
 get(PG_FUNCTION_ARGS)
@@ -601,13 +654,9 @@ sp_db_size(PG_FUNCTION_ARGS)
 
 	/* Processing */
 	dsa_handle              dsa_handle;
-	dsa_pointer             dsa_key;
-	dsa_pointer				dsa_value;
 	dsa_area                *dsa;
 	dshash_table_handle     htab_handle;
 	dshash_table			*htab;
-	bool					exclusive = false; /* TODO: This depends on the xx / nx */
-	bool                    found;
 	SpatDBEntry				*entry;
 
 	/* Begin processing */

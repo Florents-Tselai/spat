@@ -1,5 +1,5 @@
 SET client_min_messages = ERROR;
--- SET
+-- SET - DELETE - SIZE
 SELECT sset('tkey1', 'dfgf');
  sset 
 ------
@@ -24,9 +24,52 @@ SELECT sset('gfd', 'dfgf');
  dfgf
 (1 row)
 
-SELECT sp_db_size();
+SELECT sp_db_size(); --4
  sp_db_size 
 ------------
           6
+(1 row)
+
+-- DELETE and inspect size
+SELECT del('tkey1'); --existing
+ del 
+-----
+ t
+(1 row)
+
+SELECT del('aaaa'); --not existing
+ del 
+-----
+ f
+(1 row)
+
+SELECT sp_db_size(); --3
+ sp_db_size 
+------------
+          5
+(1 row)
+
+SELECT del('tkeygdfg1');
+ del 
+-----
+ t
+(1 row)
+
+SELECT del('gdf');
+ del 
+-----
+ t
+(1 row)
+
+SELECT del('gfd');
+ del 
+-----
+ t
+(1 row)
+
+SELECT sp_db_size(); --0
+ sp_db_size 
+------------
+          2
 (1 row)
 
