@@ -16,10 +16,10 @@ CREATE FUNCTION sp_db_size() RETURNS INTEGER AS 'MODULE_PATHNAME' LANGUAGE C;
 
 /* -------------------- SSET -------------------- */
 
-CREATE FUNCTION sset_generic(key text, value anyelement, ex interval default null, nx boolean default null, xx boolean default null) RETURNS anyelement AS 'MODULE_PATHNAME', 'sset_generic' LANGUAGE C;
+CREATE FUNCTION sset_generic(key text, value anyelement, ttl interval default null, nx boolean default null, xx boolean default null) RETURNS anyelement AS 'MODULE_PATHNAME', 'sset_generic' LANGUAGE C;
 
 /* text types */
-CREATE FUNCTION sset(text, text,    ex interval default null, nx boolean default null, xx boolean default null) RETURNS text  AS 'SELECT sset_generic($1, $2::text, $3, $4, $5)' LANGUAGE SQL;
+CREATE FUNCTION sset(text, text,    ttl interval default null, nx boolean default null, xx boolean default null) RETURNS text  AS 'SELECT sset_generic($1, $2::text, $3, $4, $5)' LANGUAGE SQL;
 
 /* numeric types */
 -- CREATE FUNCTION sset(text, smallint,        ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS smallint AS 'SELECT sset_generic($1, $2::smallint, $3, $4, $5)' LANGUAGE SQL;
@@ -45,3 +45,15 @@ CREATE TYPE spval;
 /* -------------------- DEL -------------------- */
 
 CREATE FUNCTION del(text) RETURNS bool AS 'MODULE_PATHNAME' LANGUAGE C;
+
+CREATE FUNCTION sp_db_clear() RETURNS void AS 'MODULE_PATHNAME' LANGUAGE C;
+
+/* -------------------- SCAN -------------------- */
+
+CREATE FUNCTION scan() RETURNS setof text AS 'MODULE_PATHNAME' LANGUAGE C;
+
+/* -------------------- Expiration / TTL -------------------- */
+
+CREATE FUNCTION ttl(text) RETURNS timestamptz AS 'MODULE_PATHNAME' LANGUAGE C;
+
+

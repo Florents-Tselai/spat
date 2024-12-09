@@ -4,7 +4,7 @@ MODULE_big = $(EXTENSION)
 OBJS = spat.o
 PGFILEDESC = "Redis-like in-memory database embedded in Postgres"
 
-DATA = spat--0.1.0.sql
+DATA = spat--0.1.0a0.sql
 
 TESTS = $(wildcard test/sql/*.sql)
 REGRESS = $(patsubst test/sql/%.sql,%,$(TESTS))
