@@ -10,6 +10,10 @@ CREATE FUNCTION spat_db_get_int(text)           RETURNS INT         AS 'MODULE_P
 
 CREATE FUNCTION spat_db_type(text)              RETURNS TEXT        AS 'MODULE_PATHNAME' LANGUAGE C;
 
+/* -------------------- DB Info -------------------- */
+
+CREATE FUNCTION sp_db_size() RETURNS INTEGER AS 'MODULE_PATHNAME' LANGUAGE C;
+
 /* -------------------- SSET -------------------- */
 
 CREATE FUNCTION sset_generic(key text, value anyelement, ex interval default null, nx boolean default null, xx boolean default null) RETURNS anyelement AS 'MODULE_PATHNAME', 'sset_generic' LANGUAGE C;
@@ -19,7 +23,7 @@ CREATE FUNCTION sset(text, text,    ex interval default null, nx boolean default
 
 /* numeric types */
 -- CREATE FUNCTION sset(text, smallint,        ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS smallint AS 'SELECT sset_generic($1, $2::smallint, $3, $4, $5)' LANGUAGE SQL;
-CREATE FUNCTION sset(text, integer,         ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS integer AS 'SELECT sset_generic($1, $2::integer, $3, $4, $5)' LANGUAGE SQL;
+-- CREATE FUNCTION sset(text, integer,         ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS integer AS 'SELECT sset_generic($1, $2::integer, $3, $4, $5)' LANGUAGE SQL;
 -- CREATE FUNCTION sset(text, bigint,          ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS bigint AS 'SELECT sset_generic($1, $2::bigint, $3, $4, $5)' LANGUAGE SQL;
 -- CREATE FUNCTION sset(text, numeric,         ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS numeric AS 'SELECT sset_generic($1, $2::numeric, $3, $4, $5)' LANGUAGE SQL;
 -- CREATE FUNCTION sset(text, real,            ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS real AS 'SELECT sset_generic($1, $2::real, $3, $4, $5)' LANGUAGE SQL;

@@ -6,3 +6,27 @@ SELECT sset('tkey1', 'dfgf');
  dfgf
 (1 row)
 
+SELECT sset('tkeygdfg1', 'dfgf');
+ sset 
+------
+ dfgf
+(1 row)
+
+SELECT sset('gdf', 'dfgf');
+ sset 
+------
+ dfgf
+(1 row)
+
+SELECT sset('gfd', 'dfgf');
+ sset 
+------
+ dfgf
+(1 row)
+
+SELECT sp_db_size();
+ sp_db_size 
+------------
+          6
+(1 row)
+

@@ -6,6 +6,9 @@
  * A SpatDB is just a segment of Postgres' memory addressable by a name.
  * Its data model is key-value.
  * Keys are strings, values can have different types (data structures)
+ * Both keys and values, underneath are traditional Datums,
+ * stored in a DSA and allocated with dsa_allocate,
+ * instead of palloc-ed in the CurrentMemoryContext.
  *
  * It uses a dshash_table to store its internally.
  * This is an open hashing hash table, with a linked list at each table
@@ -49,7 +52,7 @@ PG_MODULE_MAGIC;
 #define SPAT_NAME_DEFAULT "spat-default"
 
 
-/* -------------------- Types -------------------- */
+/* ---------------------------------------- Types ---------------------------------------- */
 
 typedef enum valueType
 {
@@ -61,10 +64,16 @@ typedef enum valueType
 
 typedef struct SpatDBEntry
 {
+	/* -------------------- Key -------------------- */
 	dsa_pointer	key;		/* pointer to a text* allocated in dsa */
+
 	valueType	typ;		/* TODO: redundant now */
 
-	Datum		value;		/* TODO: Redundant */
+	Datum		intvalue;		/* TODO: Redundant */
+
+	/* -------------------- Metadata -------------------- */
+
+	/* -------------------- Value -------------------- */
 
 	Oid			valtypid;	/* Oid of the Datum stored at valptr (default=InvalidOid).
 							 *
@@ -76,6 +85,7 @@ typedef struct SpatDBEntry
 							 * If so, use get_typlenbyvalalign
 							 */
 
+
 	Size		valsz;		/* VARSIZE_ANY(value) */
 
 	dsa_pointer valptr;		/* pointer to an opaque Datum allocated in dsa (default=InvalidDsaPointer)
@@ -83,6 +93,9 @@ typedef struct SpatDBEntry
 							 * To correctly interpret it though, you probably should take into account
 							 * both the valtypid and the valsz
 							 */
+
+	Datum		valval;		/* Datum for pass-by-value value */
+
 } SpatDBEntry;
 
 
@@ -98,12 +111,12 @@ typedef struct SpatDB
 	int					val;
 } SpatDB;
 
-/* -------------------- Global state -------------------- */
+/* ---------------------------------------- Global state ---------------------------------------- */
 
 static SpatDB *g_spat_db;		/* Current (working) database */
 								/* TODO: maybe *g_dsa here too? */
 
-/* -------------------- GUC Variables -------------------- */
+/* ---------------------------------------- GUC Variables ---------------------------------------- */
 
 static char *g_guc_spat_db_name = NULL;
 
@@ -274,7 +287,7 @@ spat_db_set_int(PG_FUNCTION_ARGS)
 	}
 	else
 	{
-		entry->value = value;
+		entry->intvalue = value;
 		entry->typ = SPAT_INT;
 		elog(INFO, "new entry for key=%s", key);
 	}
@@ -320,7 +333,7 @@ spat_db_get_int(PG_FUNCTION_ARGS)
 	if (entry)
 	{
 		found = true;
-		result = entry->value;
+		result = entry->intvalue;
 		dshash_release_lock(htab, entry);
 	}
 
@@ -398,9 +411,10 @@ sset_generic(PG_FUNCTION_ARGS)
 	bool		xx 		= PG_ARGISNULL(4) ? NULL : PG_GETARG_BOOL(4);
 
 	/* Info about value */
+	bool		valueIsNull 	= PG_ARGISNULL(1);
 	Oid valueTypeOid;
-	bool typByVal;
-	int16 typLen;
+	bool valueTypByVal;
+	int16 valueTypLen;
 
 	/* Processing */
 	dsa_handle              dsa_handle;
@@ -417,14 +431,17 @@ sset_generic(PG_FUNCTION_ARGS)
 	if (nx || xx)
 		elog(ERROR, "nx and xx are not implemented yet");
 
+	if (valueIsNull)
+		elog(ERROR, "value cannot be NULL");
+
 	/* Get value type info. We need this for the copying part */
 	valueTypeOid = get_fn_expr_argtype(fcinfo->flinfo, 1);
 
 	if (!OidIsValid(valueTypeOid))
 		elog(ERROR, "Cannot determine type of value");
 
-	get_typlenbyval(valueTypeOid, &typLen, &typByVal);
-	elog(DEBUG1, "Value Type OID: %u, typByVal: %s, typLen: %d", valueTypeOid, typByVal, typLen);
+	get_typlenbyval(valueTypeOid, &valueTypLen, &valueTypByVal);
+	elog(DEBUG1, "Value Type OID: %u, typByVal: %s, typLen: %d", valueTypeOid, valueTypByVal, valueTypLen);
 
 	if (!(valueTypeOid == TEXTOID))
 		elog(ERROR, "Unsupported value type oid=%d", valueTypeOid);
@@ -468,27 +485,88 @@ sset_generic(PG_FUNCTION_ARGS)
 
 	if (found || !found)
 	{
-		if (valueTypeOid == TEXTOID) {
-			Assert(valueTypeOid == TEXTOID);
-			elog(DEBUG1, "Inserting new text entry for key=%s", text_to_cstring(key));
-			entry->typ = SPAT_STRING;
-			entry->valtypid = valueTypeOid;
-			entry->value = -1;
+		if (!found)
+			elog(DEBUG1, "Inserting new entry for key=%s", text_to_cstring(key));
 
-			entry->valptr = dsa_allocate(dsa, VARSIZE_ANY(value));
-			entry->valsz = VARSIZE_ANY(value);
+		if (found)
+			elog(DEBUG1, "Inserting existing entry for key=%s", text_to_cstring(key));
 
-			memcpy(dsa_get_address(dsa, entry->valptr), DatumGetPointer(value), VARSIZE_ANY(value));
+		if (!found)
+		{
+			/* Initialize the entry value */
+			entry->valtypid = InvalidOid;
+			entry->valsz = InvalidAllocSize;
+			entry->valptr = InvalidDsaPointer;
+			entry->valval = InvalidOid;
 		}
 
-		elog(DEBUG1, "Inserted new entry key=%s, value=%s",
-			 text_to_cstring(key),
-			 text_to_cstring(dsa_get_address(dsa, entry->valptr)));
+		/* Copying the value into dsa.
+		 * How we do that depends on the type of the value, and its size.
+		 * This should generally follow the logic of
+		 * Datum datumCopy(Datum value, bool typByVal, int typLen)
+		 * see src/backend/utils/adt/datum.c
+		 */
+
+		if (valueTypByVal)
+			entry->valval = value;
+		else if (valueTypLen == -1)
+		{
+			/* It is a varlena datatype */
+			struct varlena *vl = (struct varlena *) DatumGetPointer(value);
+			if (VARATT_IS_EXTERNAL_EXPANDED(vl))
+			{
+				/* Flatten into the caller's memory context */
+				elog(ERROR, "expanded value types are not currently supported");
+
+				// ExpandedObjectHeader *eoh = DatumGetEOHP(value);
+				// Size		resultsize;
+				// char	   *resultptr;
+				//
+				// resultsize = EOH_get_flat_size(eoh);
+				// resultptr = (char *) palloc(resultsize);
+				// EOH_flatten_into(eoh, resultptr, resultsize);
+				// res = PointerGetDatum(resultptr);
+			}
+			else
+			{
+				/* Otherwise, just copy the varlena datum verbatim */
+
+				entry->valtypid = valueTypeOid;
+				entry->valsz = VARSIZE_ANY(value);
+				entry->valptr = dsa_allocate(dsa, VARSIZE_ANY(value));
+
+				memcpy(dsa_get_address(dsa, entry->valptr), DatumGetPointer(value), VARSIZE_ANY(value));
+
+				// Size		realSize;
+				// char	   *resultptr;
+				//
+				// realSize = (Size) VARSIZE_ANY(vl);
+				// resultptr = (char *) palloc(realSize);
+				// memcpy(resultptr, vl, realSize);
+				// res = PointerGetDatum(resultptr);
+			}
+		}
+		else
+		{
+			/* Pass by reference, but not varlena, so not toasted */
+
+			/* datumCopy */
+
+			// Size		realSize;
+			// char	   *resultptr;
+			//
+			// realSize = datumGetSize(value, typByVal, typLen);
+			//
+			// resultptr = (char *) palloc(realSize);
+			// memcpy(resultptr, DatumGetPointer(value), realSize);
+			// res = PointerGetDatum(resultptr);
+		}
+
+
+		elog(DEBUG1, "Inserted new entry key=%s", text_to_cstring(key));
 	}
 
 	elog(DEBUG1, "Copying entry value back to result");
-
-	Assert(entry->valtypid == TEXTOID);
 
 	text *result = palloc(entry->valsz);
 
@@ -514,3 +592,48 @@ get(PG_FUNCTION_ARGS)
 
 	PG_RETURN_TEXT_P(cstring_to_text("Hello World!"));
 }
+
+PG_FUNCTION_INFO_V1(sp_db_size);
+Datum
+sp_db_size(PG_FUNCTION_ARGS)
+{
+	int32 nitems = 0;
+
+	/* Processing */
+	dsa_handle              dsa_handle;
+	dsa_pointer             dsa_key;
+	dsa_pointer				dsa_value;
+	dsa_area                *dsa;
+	dshash_table_handle     htab_handle;
+	dshash_table			*htab;
+	bool					exclusive = false; /* TODO: This depends on the xx / nx */
+	bool                    found;
+	SpatDBEntry				*entry;
+
+	/* Begin processing */
+	spat_attach_shmem();
+	LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+	dsa_handle = g_spat_db->dsa_handle;
+	htab_handle = g_spat_db->htab_handle;
+	LWLockRelease(&g_spat_db->lck);
+
+	/* in dsa territory now */
+	dsa = dsa_attach(dsa_handle);
+	htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
+
+	dshash_seq_status status;
+
+	/* Initialize a sequential scan (non-exclusive lock assumed here). */
+	dshash_seq_init(&status, htab, false);
+
+	while ((entry = dshash_seq_next(&status)) != NULL)
+		nitems++;
+
+	dshash_seq_term(&status);
+
+	/* leaving dsa territory */
+	dsa_detach(dsa);
+
+	PG_RETURN_INT32(nitems);
+}
+
