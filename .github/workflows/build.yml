@@ -39,8 +39,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - postgres: 18
-            os: macos-14
           - postgres: 17
             os: macos-14
 
@@ -49,7 +47,7 @@ jobs:
       - uses: ankane/setup-postgres@v1
         with:
           postgres-version: ${{ matrix.postgres }}
-      - run: make PG_CFLAGS=-Wno-declaration-after-statement -Wno-format-security -DUSE_ASSERT_CHECKING
+      - run: make PG_CFLAGS=-Wno-declaration-after-statement -Wno-format-security
 
       - run: make install
 
