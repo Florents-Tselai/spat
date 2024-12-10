@@ -73,3 +73,28 @@ SELECT sp_db_size(); --0
           2
 (1 row)
 
+-- GET
+SELECT sset('key1', 'value1');
+  sset  
+--------
+ value1
+(1 row)
+
+SELECT spget('key1');
+ spget  
+--------
+ value1
+(1 row)
+
+SELECT del('key1');
+ del 
+-----
+ t
+(1 row)
+
+SELECT spget('key1');
+ spget 
+-------
+ 
+(1 row)
+

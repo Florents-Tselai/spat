@@ -64,13 +64,38 @@ PG_MODULE_MAGIC;
 
 /* ---------------------------------------- Types ---------------------------------------- */
 
+/*
+* spval is a shell type returned by GET and similar commands.
+* To the user it's merely a shell type to facilitate output
+* and to be casted to other types (int, float, text, jsonb, vector etc.)
+* Internally it can store either pass-by-value fixed-length Datums
+* or varlena datums.
+*
+* We set ALIGNMENT = double, 8-byte,
+* as it satisfies both varlena, 8-byte int/float and 4-byte int/float
+*/
+
 typedef enum valueType
 {
-	SPAT_INVALID	= -1,
-	SPAT_NULL		= 0,
-	SPAT_INT		= 1,
-	SPAT_STRING		= 2
+	SPVAL_INVALID	= -1,
+	SPVAL_NULL		= 0,
+	SPVAL_INTEGER	= 1,
+	SPVAL_FLOAT		= 2,
+	SPVAL_STRING	= 3
 } valueType;
+
+typedef struct spval
+{
+	valueType type;
+
+	union
+	{
+		int32 int32_val;
+		float8 float8_val;
+		struct varlena *varlena_val;
+	} value;
+} spval;
+
 
 #define SpInvalidValSize InvalidAllocSize
 #define SpInvalidValDatum NULL
@@ -129,34 +154,7 @@ typedef struct SpatDB
 	int					val;
 } SpatDB;
 
-/*
-* spval is a shell type returned by GET and similar commands.
-* To the user it's merely a shell type to facilitate output
-* and to be casted to other types (int, float, text, jsonb, vector etc.)
-* Internally it can store either pass-by-value fixed-length Datums
-* or varlena datums.
-*
-* We set ALIGNMENT = double, 8-byte,
-*  as it satisfies both varlena, 8-byte int/float and 4-byte int/float
-*/
-typedef enum spval_type
-{
-    SPVAL_INTEGER,
-    SPVAL_FLOAT,
-    SPVAL_VARLENA
-} spval_type;
 
-typedef struct spval
-{
-    spval_type type;
-
-    union
-    {
-        int32 int32_val;
-        float8 float8_val;
-        struct varlena *varlena_val;
-    } value;
-} spval;
 
 PG_FUNCTION_INFO_V1(spval_in);
 
@@ -199,7 +197,7 @@ spval_in(PG_FUNCTION_ARGS)
 	PG_END_TRY();
 
 	/* Default to varlena type (e.g., text) */
-	result->type = SPVAL_VARLENA;
+	result->type = SPVAL_STRING;
 	result->value.varlena_val = cstring_to_text(input);
 
 	PG_RETURN_POINTER(result);
@@ -225,7 +223,7 @@ spval_out(PG_FUNCTION_ARGS)
 	case SPVAL_FLOAT:
 		appendStringInfo(&output, "%g", input->value.float8_val);
 		break;
-	case SPVAL_VARLENA:
+	case SPVAL_STRING:
 		appendStringInfoString(&output, text_to_cstring(input->value.varlena_val));
 		break;
 	default:
@@ -262,13 +260,13 @@ static char* typ_name(valueType typ)
 {
 	switch (typ)
 	{
-		case SPAT_INVALID:
+		case SPVAL_INVALID:
 			return "invalid";
-		case SPAT_NULL:
+		case SPVAL_NULL:
 			return "null";
-		case SPAT_INT:
+		case SPVAL_INTEGER:
 			return "integer";
-		case SPAT_STRING:
+		case SPVAL_STRING:
 			return "string";
 		default:
 			return "unknown";
@@ -412,7 +410,7 @@ spat_db_set_int(PG_FUNCTION_ARGS)
 	else
 	{
 		entry->intvalue = value;
-		entry->typ = SPAT_INT;
+		entry->typ = SPVAL_INTEGER;
 		elog(DEBUG1, "new entry for key=%s", key);
 	}
 
@@ -422,7 +420,6 @@ spat_db_set_int(PG_FUNCTION_ARGS)
 	dsa_detach(dsa);
 	PG_RETURN_VOID();
 }
-
 
 
 PG_FUNCTION_INFO_V1(spat_db_get_int);
@@ -479,7 +476,7 @@ Datum
 spat_db_type(PG_FUNCTION_ARGS)
 {
 	char		*key   = text_to_cstring(PG_GETARG_TEXT_PP(0));
-	valueType   result = SPAT_INVALID;
+	valueType   result = SPVAL_INVALID;
 
 	dsa_handle               dsa_handle;
 	dsa_area                 *dsa;
@@ -699,25 +696,25 @@ sset_generic(PG_FUNCTION_ARGS)
 
 	elog(DEBUG1, "Copying entry value back to result");
 
-	//text *result = palloc(entry->valsz);
-
-	//memcpy(VARDATA(result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
-	//SET_VARSIZE(result, entry->valsz);
-
 	spval *result = (spval *) palloc(sizeof(spval));
 
-    /* Allocate memory for the text part (varlena) */
-    text *text_result = (text *) palloc(entry->valsz);
+	if (entry->valtypid == TEXTOID)
+	{
+		/* This actually works with any varlena type, but better be explicit for now */
 
-    /* Copy the data into the text structure */
-    memcpy(VARDATA(text_result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
-    SET_VARSIZE(text_result, entry->valsz);
+		text *text_result = (text *) palloc(entry->valsz);
 
-    /* Set up the spval structure */
-    result->type = SPVAL_VARLENA;
-    result->value.varlena_val = text_result;
+		memcpy(VARDATA(text_result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
+		SET_VARSIZE(text_result, entry->valsz);
 
-	//elog(DEBUG1, "Result string = %s", text_to_cstring(result));
+		result->type = SPVAL_STRING;
+		result->value.varlena_val = text_result;
+	}
+
+	else
+	{
+		elog(ERROR, "Unsupported spval return for type oid=%d", entry->valtypid);
+	}
 
 	if (found || !found)
 		dshash_release_lock(htab, entry);
@@ -726,6 +723,74 @@ sset_generic(PG_FUNCTION_ARGS)
 	dsa_detach(dsa);
 
 	PG_RETURN_POINTER(result);
+}
+
+PG_FUNCTION_INFO_V1(spget);
+Datum
+spget(PG_FUNCTION_ARGS)
+{
+	/* Input */
+	text 		*key 	= PG_GETARG_TEXT_PP(0);
+
+	/* Output */
+	spval 		*result;
+
+	/* Processing */
+	dsa_handle              dsa_handle;
+	dsa_pointer             dsa_key;
+	dsa_pointer				dsa_value;
+	dsa_area                *dsa;
+	dshash_table_handle     htab_handle;
+	dshash_table			*htab;
+	bool                    found;
+	SpatDBEntry				*entry;
+
+	/* Begin processing */
+	spat_attach_shmem();
+	LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+	dsa_handle = g_spat_db->dsa_handle;
+	htab_handle = g_spat_db->htab_handle;
+	LWLockRelease(&g_spat_db->lck);
+
+	/* in dsa territory now */
+	dsa = dsa_attach(dsa_handle);
+	htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
+
+	/* Allocate dsa space for key and copy it from local memory to that dsa*/
+	dsa_key = dsa_allocate(dsa, VARSIZE_ANY(key));
+	if (dsa_key == InvalidDsaPointer)
+		elog(ERROR, "Could not allocate DSA memory for key=%s", text_to_cstring(key));
+	memcpy(dsa_get_address(dsa, dsa_key), key, VARSIZE_ANY(key));
+
+	Assert(memcmp(dsa_get_address(dsa, dsa_key), key, VARSIZE_ANY(key)) == 0);
+
+	/* search for the key */
+	entry = dshash_find(htab, dsa_get_address(dsa, dsa_key), false);
+	if (entry == NULL)
+		result = NULL;
+
+	else
+	{
+		/* found */
+		result = (spval *) palloc(sizeof(spval));
+		Assert(entry->valtypid == TEXTOID);
+		text *text_result = (text *) palloc(entry->valsz);
+
+		memcpy(VARDATA(text_result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
+		SET_VARSIZE(text_result, entry->valsz);
+
+		result->type = SPVAL_STRING;
+		result->value.varlena_val = text_result;
+		dshash_release_lock(htab, entry);
+	}
+
+	/* leaving dsa territory */
+	dsa_detach(dsa);
+
+	if (!result)
+		PG_RETURN_NULL();
+	else
+		PG_RETURN_POINTER(result);
 }
 
 PG_FUNCTION_INFO_V1(del);
@@ -888,7 +953,7 @@ spval_example(PG_FUNCTION_ARGS)
 	result = (spval *) palloc(sizeof(spval));
 
 	/* Set the type to SPVAL_VARLENA */
-	result->type = SPVAL_VARLENA;
+	result->type = SPVAL_STRING;
 
 	/* Convert the C string to a PostgreSQL text datum */
 	result->value.varlena_val = cstring_to_text(example_text);

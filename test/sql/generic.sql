@@ -16,3 +16,10 @@ SELECT del('tkeygdfg1');
 SELECT del('gdf');
 SELECT del('gfd');
 SELECT sp_db_size(); --0
+
+-- GET
+SELECT sset('key1', 'value1');
+SELECT spget('key1');
+
+SELECT del('key1');
+SELECT spget('key1');

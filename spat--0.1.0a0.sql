@@ -18,18 +18,20 @@ CREATE FUNCTION sp_db_size() RETURNS INTEGER AS 'MODULE_PATHNAME' LANGUAGE C;
 
 /*
 * spval is a shell type returned by GET and similar commands.
+* It's not (currently?) used for input, only output.
 * To the user it's merely a shell type to facilitate output
 * and to be casted to other standard types (int, float, text, jsonb, vector etc.).
-*
+* spval_in shouldn't be called in practice (throws error).
+* spval_out is called to display the underlying output.
 * We use 8-byte alignment that works for all types:
 * both fixed and varlena
 */
 
 CREATE TYPE spval;
 
-CREATE FUNCTION spval_in(cstring, oid, integer) RETURNS spval AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+CREATE FUNCTION spval_in(cstring, oid, integer) RETURNS spval   AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
-CREATE FUNCTION spval_out(spval) RETURNS cstring AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+CREATE FUNCTION spval_out(spval)                RETURNS cstring AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
 CREATE TYPE spval (
     INPUT = spval_in,
@@ -39,7 +41,6 @@ CREATE TYPE spval (
 );
 
 CREATE FUNCTION spval_example() RETURNS spval AS 'MODULE_PATHNAME' LANGUAGE C PARALLEL SAFE;
-
 
 /* -------------------- SSET -------------------- */
 
@@ -60,7 +61,11 @@ CREATE FUNCTION sset(text, text,    ttl interval default null, nx boolean defaul
 
 /* -------------------- GET -------------------- */
 
--- CREATE FUNCTION get(text)  RETURNS spval AS 'MODULE_PATHNAME' LANGUAGE SQL;
+CREATE FUNCTION spget(text) RETURNS spval AS 'MODULE_PATHNAME' LANGUAGE C PARALLEL SAFE;
+
+/* -------------------- SPTYPE -------------------- */
+
+CREATE FUNCTION sptype(text) RETURNS text AS 'MODULE_PATHNAME' LANGUAGE SQL;
 
 /* -------------------- DEL -------------------- */
 
