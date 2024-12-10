@@ -3,7 +3,7 @@
 **spat** is a Redis-like in-memory data structure server embedded in Postgres. 
 The data model is key-value, but many different kinds of values are supported.
 
-Data is stored in Postgres shared memory,
+Data is stored in Postgres shared memory.
 thus, you don't need an external caching service,
 while at the same time, you can easily manage 
 your caching layer within your SQL queries.
@@ -12,7 +12,7 @@ your caching layer within your SQL queries.
 
 `SSET(key, value, ttl interval, nx bool, xx bool) → spval`
 
-Set key to hold the string value. If key already holds a value, it is overwritten, regardless of its type.
+Set key to hold the value. If key already holds a value, it is overwritten, regardless of its type.
 Any previous time to live associated with the key is discarded on successful SET operation.
 `ttl` sets the TTL interval. 
 `nx` only set the key if it does not already exist.
@@ -43,7 +43,7 @@ Returns the TTL interval of a key
 
 Removes the expiration time of a key
 
-`EXISTS(key) → bool`
+`SEXISTS(key) → bool`
 
 Determines whether a key exists
 
@@ -53,11 +53,19 @@ Copies the value of a key to a new key
 
 ### Multiple Databases 
 
+A spat database is just a segment of Postgres' memory addressable by a name.
 You can switch between different databases (namespaces really),
-by setting the `spat.name` GUC in a session.
+by setting the `spat.db` GUC during a session.
+Subsequent operations will apply to that db only.
 
 ```tsql
-SET spat.name = 'db1';
+SET spat.db = 'db1';
+```
+
+Once done you can switch back to `spat-default`.
+
+```tsql
+SET spat.db = 'spat-default';
 ```
 
 > [!WARNING]

@@ -1,0 +1,6 @@
+select spval_example();
+   spval_example    
+--------------------
+ Hello, PostgreSQL!
+(1 row)
+

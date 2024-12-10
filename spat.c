@@ -5,6 +5,7 @@
  *
  * A SpatDB is just a segment of Postgres' memory addressable by a name.
  * Its data model is key-value.
+ *
  * Keys are strings, values can have different types (data structures)
  * Both keys and values, underneath are traditional Datums,
  * stored in a DSA and allocated with dsa_allocate,
@@ -17,10 +18,19 @@
  * supported: the hash table never becomes smaller.
  *
  *
+ * Supported Types
+ * ---------------
+ *
+ * - text,
+ * - smallint, integer, bigint
+ * - jsonb (it's in-memory JsonbValue representation is stored)
+ * - vector
+ *
+ *
  * Future Ideas
  * ------------
  * - Use dsa_unpin and a bgw to set a TTL for the whole DB.
- * -
+ * - Richer dsa statistics
  *
  * Copyright (c) 2024, Florents Tselai
  *
@@ -62,6 +72,9 @@ typedef enum valueType
 	SPAT_STRING		= 2
 } valueType;
 
+#define SpInvalidValSize InvalidAllocSize
+#define SpInvalidValDatum NULL
+
 typedef struct SpatDBEntry
 {
 	/* -------------------- Key -------------------- */
@@ -69,7 +82,7 @@ typedef struct SpatDBEntry
 
 	valueType	typ;		/* TODO: redundant now */
 
-	Datum		intvalue;		/* TODO: Redundant */
+	Datum		intvalue;	/* TODO: Redundant */
 
 	/* -------------------- Metadata -------------------- */
 
@@ -86,15 +99,20 @@ typedef struct SpatDBEntry
 							 */
 
 
-	Size		valsz;		/* VARSIZE_ANY(value) */
+	Size		valsz;		/* VARSIZE_ANY(value)
+							 * = SpInvalidValSize if the value is pass-by-value
+							 */
 
-	dsa_pointer valptr;		/* pointer to an opaque Datum allocated in dsa (default=InvalidDsaPointer)
-							 * to get a backend-local pointer to this use dsa_get_address(valptr).
+	dsa_pointer valptr;		/* pointer to an opaque Datum allocated in dsa.
+							 * To get a backend-local pointer to this use dsa_get_address(valptr).
 							 * To correctly interpret it though, you probably should take into account
 							 * both the valtypid and the valsz
 							 */
 
-	Datum		valval;		/* Datum for pass-by-value value */
+	Datum		valval;		/* Only set if valsz = InvalidAllocSize
+							 * Datum for pass-by-value value
+							 * Set to SpInvalidValDatum if the value is pass-by-reference
+							*/
 
 } SpatDBEntry;
 
@@ -110,6 +128,112 @@ typedef struct SpatDB
 	TimestampTz			created_at;
 	int					val;
 } SpatDB;
+
+/*
+* spval is a shell type returned by GET and similar commands.
+* To the user it's merely a shell type to facilitate output
+* and to be casted to other types (int, float, text, jsonb, vector etc.)
+* Internally it can store either pass-by-value fixed-length Datums
+* or varlena datums.
+*
+* We set ALIGNMENT = double, 8-byte,
+*  as it satisfies both varlena, 8-byte int/float and 4-byte int/float
+*/
+typedef enum spval_type
+{
+    SPVAL_INTEGER,
+    SPVAL_FLOAT,
+    SPVAL_VARLENA
+} spval_type;
+
+typedef struct spval
+{
+    spval_type type;
+
+    union
+    {
+        int32 int32_val;
+        float8 float8_val;
+        struct varlena *varlena_val;
+    } value;
+} spval;
+
+PG_FUNCTION_INFO_V1(spval_in);
+
+Datum
+spval_in(PG_FUNCTION_ARGS)
+{
+	elog(ERROR, "spval_in shouldn't be called");
+	char *input = PG_GETARG_CSTRING(0);
+	spval *result;
+
+	/* Allocate memory for the spval struct */
+	result = (spval *) palloc(sizeof(spval));
+
+	/* Try parsing as an integer using int4in */
+	PG_TRY();
+	{
+		result->value.int32_val = DatumGetInt32(DirectFunctionCall1(int4in, CStringGetDatum(input)));
+		result->type = SPVAL_INTEGER;
+		PG_RETURN_POINTER(result);
+	}
+	PG_CATCH();
+	{
+		/* Clear error and proceed to try other types */
+		FlushErrorState();
+	}
+	PG_END_TRY();
+
+	/* Try parsing as a float using float8in */
+	PG_TRY();
+	{
+		result->value.float8_val = DatumGetFloat8(DirectFunctionCall1(float8in, CStringGetDatum(input)));
+		result->type = SPVAL_FLOAT;
+		PG_RETURN_POINTER(result);
+	}
+	PG_CATCH();
+	{
+		/* Clear error and proceed to try as text */
+		FlushErrorState();
+	}
+	PG_END_TRY();
+
+	/* Default to varlena type (e.g., text) */
+	result->type = SPVAL_VARLENA;
+	result->value.varlena_val = cstring_to_text(input);
+
+	PG_RETURN_POINTER(result);
+}
+
+PG_FUNCTION_INFO_V1(spval_out);
+
+Datum
+spval_out(PG_FUNCTION_ARGS)
+{
+	spval *input = (spval *) PG_GETARG_POINTER(0);
+	StringInfoData output;
+
+	/* Initialize output string */
+	initStringInfo(&output);
+
+	/* Convert spval back to a string based on its type */
+	switch (input->type)
+	{
+	case SPVAL_INTEGER:
+		appendStringInfo(&output, "%d", input->value.int32_val);
+		break;
+	case SPVAL_FLOAT:
+		appendStringInfo(&output, "%g", input->value.float8_val);
+		break;
+	case SPVAL_VARLENA:
+		appendStringInfoString(&output, text_to_cstring(input->value.varlena_val));
+		break;
+	default:
+		elog(ERROR, "Unknown spval type");
+	}
+
+	PG_RETURN_CSTRING(output.data);
+}
 
 /* ---------------------------------------- Global state ---------------------------------------- */
 
@@ -498,17 +622,24 @@ sset_generic(PG_FUNCTION_ARGS)
 			entry->valsz = InvalidAllocSize;
 			entry->valptr = InvalidDsaPointer;
 			entry->valval = InvalidOid;
+
 		}
 
 		/* Copying the value into dsa.
 		 * How we do that depends on the type of the value, and its size.
 		 * This should generally follow the logic of
 		 * Datum datumCopy(Datum value, bool typByVal, int typLen)
-		 * see src/backend/utils/adt/datum.c
+		 * in src/backend/utils/adt/datum.c
 		 */
 
 		if (valueTypByVal)
+		{
+			entry->valtypid = valueTypeOid;
+			entry->valsz = SpInvalidValSize;
+			entry->valptr = InvalidDsaPointer;
 			entry->valval = value;
+			entry->valval = value;
+		}
 		else if (valueTypLen == -1)
 		{
 			/* It is a varlena datatype */
@@ -568,12 +699,25 @@ sset_generic(PG_FUNCTION_ARGS)
 
 	elog(DEBUG1, "Copying entry value back to result");
 
-	text *result = palloc(entry->valsz);
+	//text *result = palloc(entry->valsz);
 
-	memcpy(VARDATA(result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
-	SET_VARSIZE(result, entry->valsz);
+	//memcpy(VARDATA(result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
+	//SET_VARSIZE(result, entry->valsz);
 
-	elog(DEBUG1, "Result string = %s", text_to_cstring(result));
+	spval *result = (spval *) palloc(sizeof(spval));
+
+    /* Allocate memory for the text part (varlena) */
+    text *text_result = (text *) palloc(entry->valsz);
+
+    /* Copy the data into the text structure */
+    memcpy(VARDATA(text_result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
+    SET_VARSIZE(text_result, entry->valsz);
+
+    /* Set up the spval structure */
+    result->type = SPVAL_VARLENA;
+    result->value.varlena_val = text_result;
+
+	//elog(DEBUG1, "Result string = %s", text_to_cstring(result));
 
 	if (found || !found)
 		dshash_release_lock(htab, entry);
@@ -590,27 +734,14 @@ del(PG_FUNCTION_ARGS)
 {
 	/* Input */
 	text 		*key 	= PG_GETARG_TEXT_PP(0);
-	Datum 		value 	= PG_GETARG_DATUM(1);
-	Interval	*ex 	= PG_ARGISNULL(2) ? NULL : PG_GETARG_INTERVAL_P(2);
-	bool		nx 		= PG_ARGISNULL(3) ? NULL : PG_GETARG_BOOL(3);
-	bool		xx 		= PG_ARGISNULL(4) ? NULL : PG_GETARG_BOOL(4);
-
-	/* Info about value */
-	bool		valueIsNull 	= PG_ARGISNULL(1);
-	Oid valueTypeOid;
-	bool valueTypByVal;
-	int16 valueTypLen;
 
 	/* Processing */
 	dsa_handle              dsa_handle;
 	dsa_pointer             dsa_key;
-	dsa_pointer				dsa_value;
 	dsa_area                *dsa;
 	dshash_table_handle     htab_handle;
 	dshash_table			*htab;
-	bool					exclusive = false; /* TODO: This depends on the xx / nx */
 	bool                    found;
-	SpatDBEntry				*entry;
 
 	/* Begin processing */
 	spat_attach_shmem();
@@ -686,3 +817,82 @@ sp_db_size(PG_FUNCTION_ARGS)
 	PG_RETURN_INT32(nitems);
 }
 
+
+PG_FUNCTION_INFO_V1(ttl);
+Datum
+ttl(PG_FUNCTION_ARGS)
+{
+}
+
+PG_FUNCTION_INFO_V1(spkeys);
+Datum
+spkeys(PG_FUNCTION_ARGS)
+{
+	ArrayType *result = NULL;
+
+	/* Processing */
+	dsa_handle              dsa_handle;
+	dsa_area                *dsa;
+	dshash_table_handle     htab_handle;
+	dshash_table			*htab;
+	SpatDBEntry				*entry;
+
+	/* Begin processing */
+	spat_attach_shmem();
+	LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+	dsa_handle = g_spat_db->dsa_handle;
+	htab_handle = g_spat_db->htab_handle;
+	LWLockRelease(&g_spat_db->lck);
+
+	/* in dsa territory now */
+	dsa = dsa_attach(dsa_handle);
+	htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
+
+	dshash_seq_status status;
+
+	/* Initialize a sequential scan (non-exclusive lock assumed here). */
+	dshash_seq_init(&status, htab, false);
+
+	while ((entry = dshash_seq_next(&status)) != NULL)
+	{
+		PG_RETURN_TEXT_P(cstring_to_text(dsa_get_address(dsa, entry->key)));
+	}
+	dshash_seq_term(&status);
+
+	/* leaving dsa territory */
+	dsa_detach(dsa);
+}
+
+PG_FUNCTION_INFO_V1(spscan);
+Datum
+spscan(PG_FUNCTION_ARGS)
+{
+}
+
+PG_FUNCTION_INFO_V1(sp_db_clear);
+Datum
+sp_db_clear(PG_FUNCTION_ARGS)
+{
+	elog(ERROR, "sp_db_clear not implemented yet");
+}
+
+PG_FUNCTION_INFO_V1(spval_example);
+
+Datum
+spval_example(PG_FUNCTION_ARGS)
+{
+	spval *result;
+	const char *example_text = "Hello, PostgreSQL!";
+
+	/* Allocate memory for spval */
+	result = (spval *) palloc(sizeof(spval));
+
+	/* Set the type to SPVAL_VARLENA */
+	result->type = SPVAL_VARLENA;
+
+	/* Convert the C string to a PostgreSQL text datum */
+	result->value.varlena_val = cstring_to_text(example_text);
+
+	/* Return the spval structure */
+	PG_RETURN_POINTER(result);
+}

@@ -14,12 +14,39 @@ CREATE FUNCTION spat_db_type(text)              RETURNS TEXT        AS 'MODULE_P
 
 CREATE FUNCTION sp_db_size() RETURNS INTEGER AS 'MODULE_PATHNAME' LANGUAGE C;
 
+/* -------------------- spval -------------------- */
+
+/*
+* spval is a shell type returned by GET and similar commands.
+* To the user it's merely a shell type to facilitate output
+* and to be casted to other standard types (int, float, text, jsonb, vector etc.).
+*
+* We use 8-byte alignment that works for all types:
+* both fixed and varlena
+*/
+
+CREATE TYPE spval;
+
+CREATE FUNCTION spval_in(cstring, oid, integer) RETURNS spval AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE FUNCTION spval_out(spval) RETURNS cstring AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE TYPE spval (
+    INPUT = spval_in,
+    OUTPUT = spval_out,
+    INTERNALLENGTH = VARIABLE,
+    ALIGNMENT = double -- 8-byte alignment
+);
+
+CREATE FUNCTION spval_example() RETURNS spval AS 'MODULE_PATHNAME' LANGUAGE C PARALLEL SAFE;
+
+
 /* -------------------- SSET -------------------- */
 
-CREATE FUNCTION sset_generic(key text, value anyelement, ttl interval default null, nx boolean default null, xx boolean default null) RETURNS anyelement AS 'MODULE_PATHNAME', 'sset_generic' LANGUAGE C;
+CREATE FUNCTION sset_generic(key text, value anyelement, ttl interval default null, nx boolean default null, xx boolean default null) RETURNS spval AS 'MODULE_PATHNAME', 'sset_generic' LANGUAGE C;
 
 /* text types */
-CREATE FUNCTION sset(text, text,    ttl interval default null, nx boolean default null, xx boolean default null) RETURNS text  AS 'SELECT sset_generic($1, $2::text, $3, $4, $5)' LANGUAGE SQL;
+CREATE FUNCTION sset(text, text,    ttl interval default null, nx boolean default null, xx boolean default null) RETURNS spval  AS 'SELECT sset_generic($1, $2::text, $3, $4, $5)' LANGUAGE SQL;
 
 /* numeric types */
 -- CREATE FUNCTION sset(text, smallint,        ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS smallint AS 'SELECT sset_generic($1, $2::smallint, $3, $4, $5)' LANGUAGE SQL;
@@ -30,13 +57,6 @@ CREATE FUNCTION sset(text, text,    ttl interval default null, nx boolean defaul
 
 /* binary types */
 -- CREATE FUNCTION sset(text, bytea, ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS bytea AS 'SELECT sset_generic($1, $2::bytea, $3, $4, $5)' LANGUAGE SQL;
-
-/* -------------------- spval -------------------- */
-
--- Shell type that can be casted to the supported types above
--- That's necessary because we can't just define get(text) returns anyelement.
-
-CREATE TYPE spval;
 
 /* -------------------- GET -------------------- */
 
@@ -50,7 +70,9 @@ CREATE FUNCTION sp_db_clear() RETURNS void AS 'MODULE_PATHNAME' LANGUAGE C;
 
 /* -------------------- SCAN -------------------- */
 
-CREATE FUNCTION scan() RETURNS setof text AS 'MODULE_PATHNAME' LANGUAGE C;
+-- CREATE FUNCTION spkeys() RETURNS text[] AS 'MODULE_PATHNAME' LANGUAGE C;
+
+-- CREATE FUNCTION spscan() RETURNS setof text AS 'MODULE_PATHNAME' LANGUAGE C;
 
 /* -------------------- Expiration / TTL -------------------- */
 
