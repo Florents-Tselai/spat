@@ -1,5 +1,7 @@
 # spat: Redis-like in-memory database embedded in Postgres
 
+[![Build Status](https://github.com/Florents-Tselai/spat/actions/workflows/build.yml/badge.svg)](https://github.com/Florents-Tselai/spat/actions)
+
 **spat** is a Redis-like in-memory data structure server embedded in Postgres. 
 The data model is key-value, but many different kinds of values are supported.
 

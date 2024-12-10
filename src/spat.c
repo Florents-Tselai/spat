@@ -1,7 +1,7 @@
 /*--------------------------------------------------------------------------
  *
  * spat.c
- *	  Redis-like in-memory database embedded in Postgres
+ *		Redis-like in-memory database embedded in Postgres
  *
  * A SpatDB is just a segment of Postgres' memory addressable by a name.
  * Its data model is key-value.
@@ -11,7 +11,7 @@
  * stored in a DSA and allocated with dsa_allocate,
  * instead of palloc-ed in the CurrentMemoryContext.
  *
- * It uses a dshash_table to store its internally.
+ * It uses a dshash_table to store its data internally.
  * This is an open hashing hash table, with a linked list at each table
  * entry.  It supports dynamic resizing, as required to prevent the linked
  * lists from growing too long on average.  Currently, only growing is
@@ -71,6 +71,10 @@ PG_MODULE_MAGIC;
 * Internally it can store either pass-by-value fixed-length Datums
 * or varlena datums.
 *
+* The actually in-memory representation though is SpatDBEntry.
+* spval is created by such an entry.
+* At some point spval could be used as a value type, but not yet.
+*
 * We set ALIGNMENT = double, 8-byte,
 * as it satisfies both varlena, 8-byte int/float and 4-byte int/float
 */
@@ -95,7 +99,6 @@ typedef struct spval
 		struct varlena *varlena_val;
 	} value;
 } spval;
-
 
 #define SpInvalidValSize InvalidAllocSize
 #define SpInvalidValDatum NULL
