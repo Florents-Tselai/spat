@@ -1,3 +1,5 @@
+SET client_min_messages = ERROR;
+
 SELECT spat_db_name(); -- spat-default
 -- switch to a new db
 SET spat.db = 'test-spat';

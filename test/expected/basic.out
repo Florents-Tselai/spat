@@ -1,3 +1,4 @@
+SET client_min_messages = ERROR;
 SELECT spat_db_name(); -- spat-default
  spat_db_name 
 --------------
@@ -21,7 +22,6 @@ SELECT spat_db_created_at() NOTNULL;
 -- switch back to the default to preserve my sanity when copy-pasting
 SET spat.db = 'spat-default';
 SELECT spat_db_set_int('key1', 1);
-INFO:  new entry for key=key1
  spat_db_set_int 
 -----------------
  
@@ -40,7 +40,6 @@ SELECT spat_db_get_int('keaaaaay1');
 (1 row)
 
 SELECT spat_db_set_int('keaaaaay1', 1000);
-INFO:  new entry for key=keaaaaay1
  spat_db_set_int 
 -----------------
  

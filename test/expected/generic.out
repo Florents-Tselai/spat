@@ -1,0 +1,125 @@
+SET client_min_messages = ERROR;
+-- SET - DELETE - SIZE
+SELECT sset('tkey1', 'dfgf');
+ sset 
+------
+ dfgf
+(1 row)
+
+SELECT sset('tkeygdfg1', 'dfgf');
+ sset 
+------
+ dfgf
+(1 row)
+
+SELECT sset('gdf', 'dfgf');
+ sset 
+------
+ dfgf
+(1 row)
+
+SELECT sset('gfd', 'dfgf');
+ sset 
+------
+ dfgf
+(1 row)
+
+SELECT sp_db_size(); --4
+ sp_db_size 
+------------
+          6
+(1 row)
+
+-- DELETE and inspect size
+SELECT del('tkey1'); --existing
+ del 
+-----
+ t
+(1 row)
+
+SELECT del('aaaa'); --not existing
+ del 
+-----
+ f
+(1 row)
+
+SELECT sp_db_size(); --3
+ sp_db_size 
+------------
+          5
+(1 row)
+
+SELECT del('tkeygdfg1');
+ del 
+-----
+ t
+(1 row)
+
+SELECT del('gdf');
+ del 
+-----
+ t
+(1 row)
+
+SELECT del('gfd');
+ del 
+-----
+ t
+(1 row)
+
+SELECT sp_db_size(); --0
+ sp_db_size 
+------------
+          2
+(1 row)
+
+-- SET / GET / DEL text
+SELECT sset('key1', 'value1');
+  sset  
+--------
+ value1
+(1 row)
+
+SELECT spget('key1');
+ spget  
+--------
+ value1
+(1 row)
+
+SELECT del('key1');
+ del 
+-----
+ t
+(1 row)
+
+SELECT spget('key1');
+ spget 
+-------
+ 
+(1 row)
+
+-- SET / GET / DEL text
+SELECT sset('intkey1', 10);
+ sset 
+------
+ 10
+(1 row)
+
+SELECT spget('intkey1');
+ spget 
+-------
+ 10
+(1 row)
+
+SELECT del('intkey1');
+ del 
+-----
+ t
+(1 row)
+
+SELECT spget('intkey1');
+ spget 
+-------
+ 
+(1 row)
+

@@ -1,10 +1,10 @@
-# Generated subdirectories
-/log/
+/.git/
+/dist/
 /results/
 /tmp_check/
 /pgdata/
+regression.*
 *.o
 *.so
 *.dylib
 /.idea/
-/dist/

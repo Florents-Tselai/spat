@@ -1,10 +1,11 @@
 EXTENSION = spat
+EXTVERSION = v0.1.0a0
 
 MODULE_big = $(EXTENSION)
-OBJS = spat.o
+OBJS = src/spat.o
 PGFILEDESC = "Redis-like in-memory database embedded in Postgres"
 
-DATA = spat--0.1.0.sql
+DATA = spat--0.1.0a0.sql
 
 TESTS = $(wildcard test/sql/*.sql)
 REGRESS = $(patsubst test/sql/%.sql,%,$(TESTS))
@@ -14,7 +15,28 @@ PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
-# targets used for development only
+######### DIST / RELEASE #########
+
+.PHONY: dist
+
+dist:
+	mkdir -p dist
+	git archive --format zip --prefix=$(EXTENSION)-$(EXTVERSION)/ --output dist/$(EXTENSION)-$(EXTVERSION).zip main
+
+# for Docker
+PG_MAJOR ?= 17
+
+.PHONY: docker
+
+docker:
+	docker build --pull --no-cache --build-arg PG_MAJOR=$(PG_MAJOR) -t florents/spat:pg$(PG_MAJOR) -t florents/spat:$(EXTVERSION)-pg$(PG_MAJOR) .
+
+.PHONY: docker-release
+
+docker-release:
+	docker buildx build --push --pull --no-cache --platform linux/amd64,linux/arm64 --build-arg PG_MAJOR=$(PG_MAJOR) -t florents/spat:pg$(PG_MAJOR) -t florents/spat:$(EXTVERSION)-pg$(PG_MAJOR) .
+
+######### DEVELOPMENT #########
 
 PGDATA = ./pgdata
 PG_CTL = pg_ctl
@@ -28,4 +50,4 @@ stop-db:
 start-db:
 	postgres -D $(PGDATA)
 
-dev: restart-db clean all install installcheck
+dev: clean all install installcheck
