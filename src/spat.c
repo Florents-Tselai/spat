@@ -567,7 +567,7 @@ sset_generic(PG_FUNCTION_ARGS)
 	get_typlenbyval(valueTypeOid, &valueTypLen, &valueTypByVal);
 	elog(DEBUG1, "Value Type OID: %u, typByVal: %s, typLen: %d", valueTypeOid, valueTypByVal, valueTypLen);
 
-	if (!(valueTypeOid == TEXTOID))
+	if (!(valueTypeOid == TEXTOID || valueTypeOid == INT4OID))
 		elog(ERROR, "Unsupported value type oid=%d", valueTypeOid);
 
 	/* Begin processing */
@@ -714,6 +714,12 @@ sset_generic(PG_FUNCTION_ARGS)
 		result->value.varlena_val = text_result;
 	}
 
+	else if (entry->valtypid == INT4OID)
+	{
+		result->type = SPVAL_INTEGER;
+		result->value.int32_val = DatumGetInt32(entry->valval);
+	}
+
 	else
 	{
 		elog(ERROR, "Unsupported spval return for type oid=%d", entry->valtypid);
@@ -775,15 +781,27 @@ spget(PG_FUNCTION_ARGS)
 	else
 	{
 		/* found */
-		result = (spval *) palloc(sizeof(spval));
-		Assert(entry->valtypid == TEXTOID);
-		text *text_result = (text *) palloc(entry->valsz);
+		if (entry->valtypid == TEXTOID)
+		{
+			Assert(entry->valtypid == TEXTOID);
 
-		memcpy(VARDATA(text_result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
-		SET_VARSIZE(text_result, entry->valsz);
+			result = (spval *) palloc(sizeof(spval));
+			text *text_result = (text *) palloc(entry->valsz);
 
-		result->type = SPVAL_STRING;
-		result->value.varlena_val = text_result;
+			memcpy(VARDATA(text_result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
+			SET_VARSIZE(text_result, entry->valsz);
+
+			result->type = SPVAL_STRING;
+			result->value.varlena_val = text_result;
+		}
+
+		else if (entry->valtypid == INT4OID)
+		{
+			result = (spval *) palloc(sizeof(spval));
+			result->type = SPVAL_INTEGER;
+			result->value.int32_val = DatumGetInt32(entry->valval);
+		}
+
 		dshash_release_lock(htab, entry);
 	}
 

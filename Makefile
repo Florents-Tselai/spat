@@ -1,5 +1,5 @@
 EXTENSION = spat
-EXTVERSION=v0.1.0a0
+EXTVERSION = v0.1.0a0
 
 MODULE_big = $(EXTENSION)
 OBJS = src/spat.o
