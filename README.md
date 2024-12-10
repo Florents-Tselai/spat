@@ -70,12 +70,76 @@ Once done you can switch back to `spat-default`.
 SET spat.db = 'spat-default';
 ```
 
-> [!WARNING]
+> [!NOTE]
 > Don't use this in production yet.
 
-> [!CAUTION]
+> [!WARNING]
+> This is far from ready for production.
+> There are definitely memory leak bugs in the code,
+> which could potentially mess-up your shared memory
+> and degrade performance.
+
+> [!WARNING]
 > You should assume that the data you cache, are visible
 > and accessible even between different users in the same database cluster.
+
+## Configuration
+
+To completely disable disk access 
+in Postgres (including writes for checkpointing, WAL flushing, etc.), 
+you would need to configure it in a way that ensures all operations are kept in memory.
+
+You can get close to that if you tweak its configuration
+
+Use `PGDATA=/dev/shm` or other similar memory-backed filesystem.
+
+```sql
+-- Disable Logging
+ALTER SYSTEM SET logging_collector = 'off';
+
+-- Minimize Temporary Disk Usage
+ALTER SYSTEM SET work_mem = '1GB';
+ALTER SYSTEM SET maintenance_work_mem = '10GB';
+
+-- Disable WAL Writes
+ALTER SYSTEM SET wal_level = 'none';
+ALTER SYSTEM SET archive_mode = 'off';
+ALTER SYSTEM SET synchronous_commit = 'off';
+ALTER SYSTEM SET wal_writer_delay = '10min';
+ALTER SYSTEM SET max_wal_size = '1GB'; -- Set a high threshold to minimize flushing
+ALTER SYSTEM SET wal_buffers = '16MB'; -- Minimal size
+
+--Disable Checkpoints
+ALTER SYSTEM SET checkpoint_timeout = '10min'; -- Or higher
+ALTER SYSTEM SET checkpoint_completion_target = '0'; -- Prevent intermediate flushes
+ALTER SYSTEM SET max_wal_size = '128GB'; -- Keep WAL size large to delay checkpoints
+      
+-- Disable Auto-Vacuum
+ALTER SYSTEM SET checkpoint_timeout = '10min'; -- Or higher
+ALTER SYSTEM SET checkpoint_completion_target = '0'; -- Prevent intermediate flushes
+ALTER SYSTEM SET max_wal_size = '128GB'; -- Keep WAL size large to delay checkpoints
+      
+-- Use Temporary Tablespaces in Memory
+ALTER SYSTEM SET temp_tablespaces = '/dev/shm'; -- Or equivalent memory-backed filesystem
+      
+-- Disable Disk Writes for Statistics
+ALTER SYSTEM SET stats_temp_directory = '/dev/shm';
+      
+-- Disable Background Writer
+ALTER SYSTEM SET bgwriter_lru_maxpages = 0;
+ALTER SYSTEM SET bgwriter_delay = '10min'; -- Delay any operations
+```
+## FAQ 
+
+#### What's the performance of this ?
+
+I have no idea.
+
+#### What about persistence ?
+
+In databases persistence is the "D"urability in ACID.
+Postgres occasionally flushes its WAL on disk,
+but you can disable this with something like 
 
 ## Background
 
