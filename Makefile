@@ -50,4 +50,4 @@ stop-db:
 start-db:
 	postgres -D $(PGDATA)
 
-dev: restart-db clean all install installcheck
+dev: restart-db uninstall clean all install installcheck restart-db

@@ -97,7 +97,7 @@ typedef struct SPValue
 	union
 	{
 		int32 integer;
-		struct varlena *varlena_val;
+		void* varlena_val;
 	} value;
 } SPValue;
 
@@ -155,10 +155,10 @@ typedef struct SpatDB
 } SpatDB;
 
 
-PG_FUNCTION_INFO_V1(spval_in);
+PG_FUNCTION_INFO_V1(spvalue_in);
 
 Datum
-spval_in(PG_FUNCTION_ARGS)
+spvalue_in(PG_FUNCTION_ARGS)
 {
 	elog(ERROR, "spval_in shouldn't be called");
 	char *input = PG_GETARG_CSTRING(0);
@@ -188,10 +188,10 @@ spval_in(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(result);
 }
 
-PG_FUNCTION_INFO_V1(spval_out);
+PG_FUNCTION_INFO_V1(spvalue_out);
 
 Datum
-spval_out(PG_FUNCTION_ARGS)
+spvalue_out(PG_FUNCTION_ARGS)
 {
 	SPValue *input = (SPValue *) PG_GETARG_POINTER(0);
 	StringInfoData output;

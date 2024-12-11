@@ -21,34 +21,34 @@ CREATE FUNCTION sp_db_size() RETURNS INTEGER AS 'MODULE_PATHNAME' LANGUAGE C;
 * both fixed and varlena
 */
 
-CREATE TYPE spval;
+CREATE TYPE spvalue;
 
-CREATE FUNCTION spval_in(cstring, oid, integer) RETURNS spval   AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+CREATE FUNCTION spvalue_in(cstring, oid, integer) RETURNS spvalue   AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
-CREATE FUNCTION spval_out(spval)                RETURNS cstring AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+CREATE FUNCTION spvalue_out(spvalue)                RETURNS cstring AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
-CREATE TYPE spval (
-    INPUT = spval_in,
-    OUTPUT = spval_out,
+CREATE TYPE spvalue (
+    INPUT = spvalue_in,
+    OUTPUT = spvalue_out,
     INTERNALLENGTH = VARIABLE,
     ALIGNMENT = double -- 8-byte alignment
 );
 
-CREATE FUNCTION spval_example() RETURNS spval AS 'MODULE_PATHNAME' LANGUAGE C PARALLEL SAFE;
+CREATE FUNCTION spval_example() RETURNS spvalue AS 'MODULE_PATHNAME' LANGUAGE C PARALLEL SAFE;
 
 /* -------------------- SSET -------------------- */
 
-CREATE FUNCTION sset_generic(key text, value anyelement, ttl interval default null, nx boolean default null, xx boolean default null) RETURNS spval AS 'MODULE_PATHNAME', 'sset_generic' LANGUAGE C;
+CREATE FUNCTION sset_generic(key text, value anyelement, ttl interval default null, nx boolean default null, xx boolean default null) RETURNS spvalue AS 'MODULE_PATHNAME', 'sset_generic' LANGUAGE C;
 
 /* text types */
-CREATE FUNCTION sset(text, text,    ttl interval default null, nx boolean default null, xx boolean default null) RETURNS spval  AS 'SELECT sset_generic($1, $2::text, $3, $4, $5)' LANGUAGE SQL;
+CREATE FUNCTION sset(text, text,    ttl interval default null, nx boolean default null, xx boolean default null) RETURNS spvalue  AS 'SELECT sset_generic($1, $2::text, $3, $4, $5)' LANGUAGE SQL;
 
 /* jsonb types */
-CREATE FUNCTION sset(text, jsonb,    ttl interval default null, nx boolean default null, xx boolean default null) RETURNS spval  AS 'SELECT sset_generic($1, $2::jsonb, $3, $4, $5)' LANGUAGE SQL;
+CREATE FUNCTION sset(text, jsonb,    ttl interval default null, nx boolean default null, xx boolean default null) RETURNS spvalue  AS 'SELECT sset_generic($1, $2::jsonb, $3, $4, $5)' LANGUAGE SQL;
 
 /* numeric types */
 -- CREATE FUNCTION sset(text, smallint,        ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS smallint AS 'SELECT sset_generic($1, $2::smallint, $3, $4, $5)' LANGUAGE SQL;
-CREATE FUNCTION sset(text, integer,         ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS spval AS 'SELECT sset_generic($1, $2::integer, $3, $4, $5)' LANGUAGE SQL;
+CREATE FUNCTION sset(text, integer,         ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS spvalue AS 'SELECT sset_generic($1, $2::integer, $3, $4, $5)' LANGUAGE SQL;
 -- CREATE FUNCTION sset(text, bigint,          ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS bigint AS 'SELECT sset_generic($1, $2::bigint, $3, $4, $5)' LANGUAGE SQL;
 -- CREATE FUNCTION sset(text, numeric,         ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS numeric AS 'SELECT sset_generic($1, $2::numeric, $3, $4, $5)' LANGUAGE SQL;
 -- CREATE FUNCTION sset(text, real,            ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS real AS 'SELECT sset_generic($1, $2::real, $3, $4, $5)' LANGUAGE SQL;
@@ -58,7 +58,7 @@ CREATE FUNCTION sset(text, integer,         ex interval DEFAULT null, nx boolean
 
 /* -------------------- GET -------------------- */
 
-CREATE FUNCTION spget(text) RETURNS spval AS 'MODULE_PATHNAME' LANGUAGE C PARALLEL SAFE;
+CREATE FUNCTION spget(text) RETURNS spvalue AS 'MODULE_PATHNAME' LANGUAGE C PARALLEL SAFE;
 
 /* -------------------- SPTYPE -------------------- */
 
