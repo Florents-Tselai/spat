@@ -30,3 +30,10 @@ SELECT spget('intkey1');
 
 SELECT del('intkey1');
 SELECT spget('intkey1');
+
+-- SET / GET / DEL jsonb
+SELECT sset('js', '{"product": "PostgreSQL", "version": 9.4, "jsonb": true}'::jsonb);
+SELECT spget('js');
+
+SELECT del('js');
+SELECT spget('js');

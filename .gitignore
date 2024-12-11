@@ -8,3 +8,5 @@
 *.dylib
 /.idea/
 /dist/
+*.log
+regression.*
