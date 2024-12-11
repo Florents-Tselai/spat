@@ -39,6 +39,7 @@
     },
     "tags": [
         "cache",
-        "hash"
+        "hash",
+        "in-memory"
     ]
 }

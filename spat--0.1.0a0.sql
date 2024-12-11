@@ -4,12 +4,6 @@ CREATE FUNCTION spat_db_name()                  RETURNS TEXT      AS 'MODULE_PAT
 
 CREATE FUNCTION spat_db_created_at()            RETURNS TIMESTAMP  AS 'MODULE_PATHNAME' LANGUAGE C;
 
-CREATE FUNCTION spat_db_set_int(text, int)      RETURNS VOID       AS 'MODULE_PATHNAME' LANGUAGE C;
-
-CREATE FUNCTION spat_db_get_int(text)           RETURNS INT         AS 'MODULE_PATHNAME' LANGUAGE C;
-
-CREATE FUNCTION spat_db_type(text)              RETURNS TEXT        AS 'MODULE_PATHNAME' LANGUAGE C;
-
 /* -------------------- DB Info -------------------- */
 
 CREATE FUNCTION sp_db_size() RETURNS INTEGER AS 'MODULE_PATHNAME' LANGUAGE C;

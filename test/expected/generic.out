@@ -1,4 +1,26 @@
 SET client_min_messages = ERROR;
+SELECT spat_db_name(); -- spat-default
+ spat_db_name 
+--------------
+ spat-default
+(1 row)
+
+-- switch to a new db
+SET spat.db = 'test-spat';
+SELECT spat_db_name(); -- test-spat
+ spat_db_name 
+--------------
+ test-spat
+(1 row)
+
+SELECT spat_db_created_at() NOTNULL;
+ ?column? 
+----------
+ t
+(1 row)
+
+-- switch back to the default to preserve my sanity when copy-pasting
+SET spat.db = 'spat-default';
 -- SET - DELETE - SIZE
 SELECT sset('tkey1', 'dfgf');
  sset 
@@ -27,7 +49,7 @@ SELECT sset('gfd', 'dfgf');
 SELECT sp_db_size(); --4
  sp_db_size 
 ------------
-          6
+          4
 (1 row)
 
 -- DELETE and inspect size
@@ -46,7 +68,7 @@ SELECT del('aaaa'); --not existing
 SELECT sp_db_size(); --3
  sp_db_size 
 ------------
-          5
+          3
 (1 row)
 
 SELECT del('tkeygdfg1');
@@ -70,7 +92,7 @@ SELECT del('gfd');
 SELECT sp_db_size(); --0
  sp_db_size 
 ------------
-          2
+          0
 (1 row)
 
 -- SET / GET / DEL text

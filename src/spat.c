@@ -110,10 +110,6 @@ typedef struct SpatDBEntry
 	/* -------------------- Key -------------------- */
 	dsa_pointer	key;		/* pointer to a text* allocated in dsa */
 
-	valueType	typ;		/* TODO: redundant now */
-
-	Datum		intvalue;	/* TODO: Redundant */
-
 	/* -------------------- Metadata -------------------- */
 
 	/* -------------------- Value -------------------- */
@@ -158,7 +154,6 @@ typedef struct SpatDB
 	TimestampTz			created_at;
 	int					val;
 } SpatDB;
-
 
 
 PG_FUNCTION_INFO_V1(spval_in);
@@ -385,157 +380,132 @@ spat_db_created_at(PG_FUNCTION_ARGS)
 	PG_RETURN_TIMESTAMPTZ(result);
 }
 
-PG_FUNCTION_INFO_V1(spat_db_set_int);
-Datum
-spat_db_set_int(PG_FUNCTION_ARGS)
+/*
+ * Builds an appropriate in the dsa, given a value Datum.
+ */
+void makeEntry(dsa_area *dsa, SpatDBEntry *entry, bool found, Oid valueTypeOid, bool valueTypByVal, int16 valueTypLen, Datum value)
 {
-	char    *key        = text_to_cstring(PG_GETARG_TEXT_PP(0));
-	Datum   value       = PG_GETARG_DATUM(1);
+	/* Set the defaults */
+	entry->valtypid = InvalidOid;
+	entry->valsz = InvalidAllocSize;
+	entry->valptr = InvalidDsaPointer;
+	entry->valval = InvalidOid;
 
-	dsa_handle               dsa_handle;
-	dsa_area                 *dsa;
-	dshash_table_handle      htab_handle;
-	dshash_table             *htab;
-	bool                     found;
 
-	spat_attach_shmem();
-	LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-	dsa_handle = g_spat_db->dsa_handle;
-	htab_handle = g_spat_db->htab_handle;
-	LWLockRelease(&g_spat_db->lck);
+	/* Copying the value into dsa.
+	 * How we do that depends on the type of the value, and its size.
+	 * This should generally follow the logic of
+	 * Datum datumCopy(Datum value, bool typByVal, int typLen)
+	 * in src/backend/utils/adt/datum.c
+	 */
 
-	dsa = dsa_attach(dsa_handle);
-	htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
-
-	/* Allocate memory for the key on DSA */
-	dsa_pointer key_dsa = dsa_allocate(dsa, strlen(key) + 1);  // +1 for the null terminator
-	if (key_dsa == InvalidDsaPointer)
-		elog(ERROR, "Could not allocate DSA memory for key=%s", key);
-
-	/* Copy the key into the allocated memory */
-	strcpy(dsa_get_address(dsa, key_dsa), key);
-
-	/* Insert or find the entry in the hash table */
-	SpatDBEntry *entry = dshash_find_or_insert(htab, dsa_get_address(dsa, key_dsa), &found);
-	if (entry == NULL)
-		elog(ERROR, "could not find or insert entry");
-
-	if (found)
+	if (valueTypByVal)
 	{
-		elog(DEBUG1, "existing entry for key=%s", key);  // Log using 'key' instead of raw pointer
+		entry->valtypid = valueTypeOid;
+		entry->valsz = SpInvalidValSize;
+		entry->valptr = InvalidDsaPointer;
+		entry->valval = value;
+		entry->valval = value;
+	}
+	else if (valueTypLen == -1)
+	{
+		/* It is a varlena datatype */
+		struct varlena *vl = (struct varlena *) DatumGetPointer(value);
+		if (VARATT_IS_EXTERNAL_EXPANDED(vl))
+		{
+			/* Flatten into the caller's memory context */
+			elog(ERROR, "expanded value types are not currently supported");
+
+			// ExpandedObjectHeader *eoh = DatumGetEOHP(value);
+			// Size		resultsize;
+			// char	   *resultptr;
+			//
+			// resultsize = EOH_get_flat_size(eoh);
+			// resultptr = (char *) palloc(resultsize);
+			// EOH_flatten_into(eoh, resultptr, resultsize);
+			// res = PointerGetDatum(resultptr);
+		}
+		else
+		{
+			/* Otherwise, just copy the varlena datum verbatim */
+
+			entry->valtypid = valueTypeOid;
+			entry->valsz = VARSIZE_ANY(value);
+			entry->valptr = dsa_allocate(dsa, VARSIZE_ANY(value));
+
+			memcpy(dsa_get_address(dsa, entry->valptr), DatumGetPointer(value), VARSIZE_ANY(value));
+
+			// Size		realSize;
+			// char	   *resultptr;
+			//
+			// realSize = (Size) VARSIZE_ANY(vl);
+			// resultptr = (char *) palloc(realSize);
+			// memcpy(resultptr, vl, realSize);
+			// res = PointerGetDatum(resultptr);
+		}
 	}
 	else
 	{
-		entry->intvalue = value;
-		entry->typ = SPVAL_INTEGER;
-		elog(DEBUG1, "new entry for key=%s", key);
+		/* Pass by reference, but not varlena, so not toasted */
+
+		/* datumCopy */
+
+		// Size		realSize;
+		// char	   *resultptr;
+		//
+		// realSize = datumGetSize(value, typByVal, typLen);
+		//
+		// resultptr = (char *) palloc(realSize);
+		// memcpy(resultptr, DatumGetPointer(value), realSize);
+		// res = PointerGetDatum(resultptr);
 	}
 
-	/* Release the lock on the entry (correct usage of release_lock) */
-	dshash_release_lock(htab, entry);
-
-	dsa_detach(dsa);
-	PG_RETURN_VOID();
 }
 
-
-PG_FUNCTION_INFO_V1(spat_db_get_int);
-Datum
-spat_db_get_int(PG_FUNCTION_ARGS)
+spval* makeSpval(dsa_area *dsa, SpatDBEntry *entry)
 {
-	char    *key        = text_to_cstring(PG_GETARG_TEXT_PP(0));
-	int     result;
-	dsa_handle               dsa_handle;
-	dsa_area                 *dsa;
-	dshash_table_handle      htab_handle;
-	dshash_table             *htab;
-	bool                     found;
+	spval* result;
 
-	spat_attach_shmem();
-	LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-	dsa_handle = g_spat_db->dsa_handle;
-	htab_handle = g_spat_db->htab_handle;
-	LWLockRelease(&g_spat_db->lck);
+	Assert(entry->valtypid == TEXTOID || entry->valtypid == JSONBOID || entry->valtypid == INT4OID);
 
-	dsa = dsa_attach(dsa_handle);
-	htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
-
-	/* Allocate memory for the key on DSA */
-	dsa_pointer key_dsa = dsa_allocate(dsa, strlen(key) + 1);  // +1 for the null terminator
-	if (key_dsa == InvalidDsaPointer)
-		elog(ERROR, "Could not allocate DSA memory for key=%s", key);
-
-	strcpy(dsa_get_address(dsa, key_dsa), key);
-
-	SpatDBEntry *entry = dshash_find(htab, dsa_get_address(dsa, key_dsa), false);
-	if (entry)
+	if (entry->valtypid == TEXTOID)
 	{
-		found = true;
-		result = entry->intvalue;
-		dshash_release_lock(htab, entry);
+		Assert(entry->valtypid == TEXTOID);
+
+		result = (spval *) palloc(sizeof(spval));
+		text *text_result = (text *) palloc(entry->valsz);
+
+		memcpy(VARDATA(text_result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
+		SET_VARSIZE(text_result, entry->valsz);
+
+		result->type = SPVAL_STRING;
+		result->value.varlena_val = text_result;
 	}
 
-	else{
-		found = false;
-		dsa_free(dsa, key_dsa);
+	if (entry->valtypid == JSONBOID)
+	{
+		Assert(entry->valtypid == JSONBOID);
+
+		result = (spval *) palloc(sizeof(spval));
+		Jsonb *jsonb_result = (Jsonb *) palloc(entry->valsz);
+
+		/* Copy the JSONB data from the shared memory to the local memory */
+		memcpy(jsonb_result, dsa_get_address(dsa, entry->valptr), entry->valsz);
+
+		/* Set up the spval structure */
+		result->type = SPVAL_JSON;
+		result->value.varlena_val = (struct varlena *) jsonb_result; /* Store as varlena */
 	}
 
-	dsa_detach(dsa);
+	if (entry->valtypid == INT4OID)
+	{
+		result = (spval *) palloc(sizeof(spval));
+		result->type = SPVAL_INTEGER;
+		result->value.int32_val = DatumGetInt32(entry->valval);
+	}
 
-	if (found)
-		PG_RETURN_INT32(result);
-	else
-		PG_RETURN_NULL();
+	return result;
 }
-
-PG_FUNCTION_INFO_V1(spat_db_type);
-Datum
-spat_db_type(PG_FUNCTION_ARGS)
-{
-	char		*key   = text_to_cstring(PG_GETARG_TEXT_PP(0));
-	valueType   result = SPVAL_INVALID;
-
-	dsa_handle               dsa_handle;
-	dsa_area                 *dsa;
-	dshash_table_handle      htab_handle;
-	dshash_table             *htab;
-	bool                     found;
-
-	spat_attach_shmem();
-	LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-	dsa_handle = g_spat_db->dsa_handle;
-	htab_handle = g_spat_db->htab_handle;
-	LWLockRelease(&g_spat_db->lck);
-
-	dsa = dsa_attach(dsa_handle);
-	htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
-
-	/* Allocate memory for the key on DSA */
-	dsa_pointer key_dsa = dsa_allocate(dsa, strlen(key) + 1);  // +1 for the null terminator
-	if (key_dsa == InvalidDsaPointer)
-		elog(ERROR, "Could not allocate DSA memory for key=%s", key);
-
-	strcpy(dsa_get_address(dsa, key_dsa), key);
-
-	SpatDBEntry *entry = dshash_find(htab, dsa_get_address(dsa, key_dsa), false);
-
-	if (entry) {
-		found = true;
-		result = entry->typ;
-		dshash_release_lock(htab, entry);
-	}
-
-	else {
-		found = false;
-		dsa_free(dsa, key_dsa);
-	}
-
-	dsa_detach(dsa);
-
-	PG_RETURN_TEXT_P(cstring_to_text(typ_name(result)));
-
-}
-
 
 PG_FUNCTION_INFO_V1(sset_generic);
 Datum
@@ -615,145 +585,11 @@ sset_generic(PG_FUNCTION_ARGS)
 		elog(ERROR, "dshash_find_or_insert failed, probably out-of-memory");
 	}
 
-	/* existing entry */
-	if (found)
-	{
-		elog(DEBUG1, "Found existing entry for key=%s", text_to_cstring(key));
-	}
+	makeEntry(dsa, entry, found, valueTypeOid, valueTypByVal, valueTypLen, value);
 
-	if (found || !found)
-	{
-		if (!found)
-			elog(DEBUG1, "Inserting new entry for key=%s", text_to_cstring(key));
+	spval *result = makeSpval(dsa, entry);
 
-		if (found)
-			elog(DEBUG1, "Inserting existing entry for key=%s", text_to_cstring(key));
-
-		if (!found)
-		{
-			/* Initialize the entry value */
-			entry->valtypid = InvalidOid;
-			entry->valsz = InvalidAllocSize;
-			entry->valptr = InvalidDsaPointer;
-			entry->valval = InvalidOid;
-
-		}
-
-		/* Copying the value into dsa.
-		 * How we do that depends on the type of the value, and its size.
-		 * This should generally follow the logic of
-		 * Datum datumCopy(Datum value, bool typByVal, int typLen)
-		 * in src/backend/utils/adt/datum.c
-		 */
-
-		if (valueTypByVal)
-		{
-			entry->valtypid = valueTypeOid;
-			entry->valsz = SpInvalidValSize;
-			entry->valptr = InvalidDsaPointer;
-			entry->valval = value;
-			entry->valval = value;
-		}
-		else if (valueTypLen == -1)
-		{
-			/* It is a varlena datatype */
-			struct varlena *vl = (struct varlena *) DatumGetPointer(value);
-			if (VARATT_IS_EXTERNAL_EXPANDED(vl))
-			{
-				/* Flatten into the caller's memory context */
-				elog(ERROR, "expanded value types are not currently supported");
-
-				// ExpandedObjectHeader *eoh = DatumGetEOHP(value);
-				// Size		resultsize;
-				// char	   *resultptr;
-				//
-				// resultsize = EOH_get_flat_size(eoh);
-				// resultptr = (char *) palloc(resultsize);
-				// EOH_flatten_into(eoh, resultptr, resultsize);
-				// res = PointerGetDatum(resultptr);
-			}
-			else
-			{
-				/* Otherwise, just copy the varlena datum verbatim */
-
-				entry->valtypid = valueTypeOid;
-				entry->valsz = VARSIZE_ANY(value);
-				entry->valptr = dsa_allocate(dsa, VARSIZE_ANY(value));
-
-				memcpy(dsa_get_address(dsa, entry->valptr), DatumGetPointer(value), VARSIZE_ANY(value));
-
-				// Size		realSize;
-				// char	   *resultptr;
-				//
-				// realSize = (Size) VARSIZE_ANY(vl);
-				// resultptr = (char *) palloc(realSize);
-				// memcpy(resultptr, vl, realSize);
-				// res = PointerGetDatum(resultptr);
-			}
-		}
-		else
-		{
-			/* Pass by reference, but not varlena, so not toasted */
-
-			/* datumCopy */
-
-			// Size		realSize;
-			// char	   *resultptr;
-			//
-			// realSize = datumGetSize(value, typByVal, typLen);
-			//
-			// resultptr = (char *) palloc(realSize);
-			// memcpy(resultptr, DatumGetPointer(value), realSize);
-			// res = PointerGetDatum(resultptr);
-		}
-
-
-		elog(DEBUG1, "Inserted new entry key=%s", text_to_cstring(key));
-	}
-
-	elog(DEBUG1, "Copying entry value back to result");
-
-	spval *result = (spval *) palloc(sizeof(spval));
-
-	if (entry->valtypid == TEXTOID)
-	{
-		/* This actually works with any varlena type, but better be explicit for now */
-
-		text *text_result = (text *) palloc(entry->valsz);
-
-		memcpy(VARDATA(text_result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
-		SET_VARSIZE(text_result, entry->valsz);
-
-		result->type = SPVAL_STRING;
-		result->value.varlena_val = text_result;
-	}
-
-	else if (entry->valtypid == JSONBOID)
-	{
-		/* This actually works with any varlena type, but better be explicit for now */
-
-		text *text_result = (text *) palloc(entry->valsz);
-
-		memcpy(VARDATA(text_result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
-		SET_VARSIZE(text_result, entry->valsz);
-
-		result->type = SPVAL_JSON;
-		result->value.varlena_val = text_result;
-	}
-
-	else if (entry->valtypid == INT4OID)
-	{
-		result->type = SPVAL_INTEGER;
-		result->value.int32_val = DatumGetInt32(entry->valval);
-	}
-
-	else
-	{
-		elog(ERROR, "Unsupported spval return for type oid=%d", entry->valtypid);
-	}
-
-	if (found || !found)
-		dshash_release_lock(htab, entry);
+	dshash_release_lock(htab, entry);
 
 	/* leaving dsa territory */
 	dsa_detach(dsa);
@@ -807,43 +643,7 @@ spget(PG_FUNCTION_ARGS)
 
 	else
 	{
-		/* found */
-		if (entry->valtypid == TEXTOID)
-		{
-			Assert(entry->valtypid == TEXTOID);
-
-			result = (spval *) palloc(sizeof(spval));
-			text *text_result = (text *) palloc(entry->valsz);
-
-			memcpy(VARDATA(text_result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
-			SET_VARSIZE(text_result, entry->valsz);
-
-			result->type = SPVAL_STRING;
-			result->value.varlena_val = text_result;
-		}
-
-		else if (entry->valtypid == JSONBOID)
-		{
-			Assert(entry->valtypid == JSONBOID);
-
-			result = (spval *) palloc(sizeof(spval));
-			Jsonb *jsonb_result = (Jsonb *) palloc(entry->valsz);
-
-			/* Copy the JSONB data from the shared memory to the local memory */
-			memcpy(jsonb_result, dsa_get_address(dsa, entry->valptr), entry->valsz);
-
-			/* Set up the spval structure */
-			result->type = SPVAL_JSON;
-			result->value.varlena_val = (struct varlena *) jsonb_result; /* Store as varlena */
-		}
-
-		else if (entry->valtypid == INT4OID)
-		{
-			result = (spval *) palloc(sizeof(spval));
-			result->type = SPVAL_INTEGER;
-			result->value.int32_val = DatumGetInt32(entry->valval);
-		}
-
+		result = makeSpval(dsa, entry);
 		dshash_release_lock(htab, entry);
 	}
 
@@ -949,51 +749,6 @@ sp_db_size(PG_FUNCTION_ARGS)
 PG_FUNCTION_INFO_V1(ttl);
 Datum
 ttl(PG_FUNCTION_ARGS)
-{
-}
-
-PG_FUNCTION_INFO_V1(spkeys);
-Datum
-spkeys(PG_FUNCTION_ARGS)
-{
-	ArrayType *result = NULL;
-
-	/* Processing */
-	dsa_handle              dsa_handle;
-	dsa_area                *dsa;
-	dshash_table_handle     htab_handle;
-	dshash_table			*htab;
-	SpatDBEntry				*entry;
-
-	/* Begin processing */
-	spat_attach_shmem();
-	LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-	dsa_handle = g_spat_db->dsa_handle;
-	htab_handle = g_spat_db->htab_handle;
-	LWLockRelease(&g_spat_db->lck);
-
-	/* in dsa territory now */
-	dsa = dsa_attach(dsa_handle);
-	htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
-
-	dshash_seq_status status;
-
-	/* Initialize a sequential scan (non-exclusive lock assumed here). */
-	dshash_seq_init(&status, htab, false);
-
-	while ((entry = dshash_seq_next(&status)) != NULL)
-	{
-		PG_RETURN_TEXT_P(cstring_to_text(dsa_get_address(dsa, entry->key)));
-	}
-	dshash_seq_term(&status);
-
-	/* leaving dsa territory */
-	dsa_detach(dsa);
-}
-
-PG_FUNCTION_INFO_V1(spscan);
-Datum
-spscan(PG_FUNCTION_ARGS)
 {
 }
 

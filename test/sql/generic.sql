@@ -1,5 +1,15 @@
 SET client_min_messages = ERROR;
 
+SELECT spat_db_name(); -- spat-default
+-- switch to a new db
+SET spat.db = 'test-spat';
+SELECT spat_db_name(); -- test-spat
+SELECT spat_db_created_at() NOTNULL;
+
+-- switch back to the default to preserve my sanity when copy-pasting
+
+SET spat.db = 'spat-default';
+
 -- SET - DELETE - SIZE
 SELECT sset('tkey1', 'dfgf');
 SELECT sset('tkeygdfg1', 'dfgf');
