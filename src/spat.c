@@ -80,27 +80,26 @@ PG_MODULE_MAGIC;
 * as it satisfies both varlena, 8-byte int/float and 4-byte int/float
 */
 
+typedef dsa_pointer SPKey;
 typedef enum valueType
 {
 	SPVAL_INVALID	= -1,
 	SPVAL_NULL		= 0,
 	SPVAL_INTEGER	= 1,
-	SPVAL_FLOAT		= 2,
-	SPVAL_STRING	= 3,
-	SPVAL_JSON		= 4,
+	SPVAL_STRING	= 2,
+	SPVAL_JSON		= 3,
 } valueType;
 
-typedef struct spval
+typedef struct SPValue
 {
 	valueType type;
 
 	union
 	{
-		int32 int32_val;
-		float8 float8_val;
+		int32 integer;
 		struct varlena *varlena_val;
 	} value;
-} spval;
+} SPValue;
 
 #define SpInvalidValSize InvalidAllocSize
 #define SpInvalidValDatum NULL
@@ -108,7 +107,7 @@ typedef struct spval
 typedef struct SpatDBEntry
 {
 	/* -------------------- Key -------------------- */
-	dsa_pointer	key;		/* pointer to a text* allocated in dsa */
+	SPKey	key;		/* pointer to a text* allocated in dsa */
 
 	/* -------------------- Metadata -------------------- */
 
@@ -163,35 +162,21 @@ spval_in(PG_FUNCTION_ARGS)
 {
 	elog(ERROR, "spval_in shouldn't be called");
 	char *input = PG_GETARG_CSTRING(0);
-	spval *result;
+	SPValue *result;
 
 	/* Allocate memory for the spval struct */
-	result = (spval *) palloc(sizeof(spval));
+	result = (SPValue *) palloc(sizeof(SPValue));
 
 	/* Try parsing as an integer using int4in */
 	PG_TRY();
 	{
-		result->value.int32_val = DatumGetInt32(DirectFunctionCall1(int4in, CStringGetDatum(input)));
+		result->value.integer = DatumGetInt32(DirectFunctionCall1(int4in, CStringGetDatum(input)));
 		result->type = SPVAL_INTEGER;
 		PG_RETURN_POINTER(result);
 	}
 	PG_CATCH();
 	{
 		/* Clear error and proceed to try other types */
-		FlushErrorState();
-	}
-	PG_END_TRY();
-
-	/* Try parsing as a float using float8in */
-	PG_TRY();
-	{
-		result->value.float8_val = DatumGetFloat8(DirectFunctionCall1(float8in, CStringGetDatum(input)));
-		result->type = SPVAL_FLOAT;
-		PG_RETURN_POINTER(result);
-	}
-	PG_CATCH();
-	{
-		/* Clear error and proceed to try as text */
 		FlushErrorState();
 	}
 	PG_END_TRY();
@@ -208,7 +193,7 @@ PG_FUNCTION_INFO_V1(spval_out);
 Datum
 spval_out(PG_FUNCTION_ARGS)
 {
-	spval *input = (spval *) PG_GETARG_POINTER(0);
+	SPValue *input = (SPValue *) PG_GETARG_POINTER(0);
 	StringInfoData output;
 
 	/* Initialize output string */
@@ -218,10 +203,7 @@ spval_out(PG_FUNCTION_ARGS)
 	switch (input->type)
 	{
 	case SPVAL_INTEGER:
-		appendStringInfo(&output, "%d", input->value.int32_val);
-		break;
-	case SPVAL_FLOAT:
-		appendStringInfo(&output, "%g", input->value.float8_val);
+		appendStringInfo(&output, "%d", input->value.integer);
 		break;
 	case SPVAL_STRING:
 		appendStringInfoString(&output, text_to_cstring(input->value.varlena_val));
@@ -462,9 +444,9 @@ void makeEntry(dsa_area *dsa, SpatDBEntry *entry, bool found, Oid valueTypeOid, 
 
 }
 
-spval* makeSpval(dsa_area *dsa, SpatDBEntry *entry)
+SPValue* makeSpval(dsa_area *dsa, SpatDBEntry *entry)
 {
-	spval* result;
+	SPValue* result;
 
 	Assert(entry->valtypid == TEXTOID || entry->valtypid == JSONBOID || entry->valtypid == INT4OID);
 
@@ -472,7 +454,7 @@ spval* makeSpval(dsa_area *dsa, SpatDBEntry *entry)
 	{
 		Assert(entry->valtypid == TEXTOID);
 
-		result = (spval *) palloc(sizeof(spval));
+		result = (SPValue *) palloc(sizeof(SPValue));
 		text *text_result = (text *) palloc(entry->valsz);
 
 		memcpy(VARDATA(text_result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
@@ -486,7 +468,7 @@ spval* makeSpval(dsa_area *dsa, SpatDBEntry *entry)
 	{
 		Assert(entry->valtypid == JSONBOID);
 
-		result = (spval *) palloc(sizeof(spval));
+		result = (SPValue *) palloc(sizeof(SPValue));
 		Jsonb *jsonb_result = (Jsonb *) palloc(entry->valsz);
 
 		/* Copy the JSONB data from the shared memory to the local memory */
@@ -499,9 +481,9 @@ spval* makeSpval(dsa_area *dsa, SpatDBEntry *entry)
 
 	if (entry->valtypid == INT4OID)
 	{
-		result = (spval *) palloc(sizeof(spval));
+		result = (SPValue *) palloc(sizeof(SPValue));
 		result->type = SPVAL_INTEGER;
-		result->value.int32_val = DatumGetInt32(entry->valval);
+		result->value.integer = DatumGetInt32(entry->valval);
 	}
 
 	return result;
@@ -587,7 +569,7 @@ sset_generic(PG_FUNCTION_ARGS)
 
 	makeEntry(dsa, entry, found, valueTypeOid, valueTypByVal, valueTypLen, value);
 
-	spval *result = makeSpval(dsa, entry);
+	SPValue *result = makeSpval(dsa, entry);
 
 	dshash_release_lock(htab, entry);
 
@@ -605,7 +587,7 @@ spget(PG_FUNCTION_ARGS)
 	text 		*key 	= PG_GETARG_TEXT_PP(0);
 
 	/* Output */
-	spval 		*result;
+	SPValue 		*result;
 
 	/* Processing */
 	dsa_handle              dsa_handle;
@@ -764,11 +746,11 @@ PG_FUNCTION_INFO_V1(spval_example);
 Datum
 spval_example(PG_FUNCTION_ARGS)
 {
-	spval *result;
+	SPValue *result;
 	const char *example_text = "Hello, PostgreSQL!";
 
 	/* Allocate memory for spval */
-	result = (spval *) palloc(sizeof(spval));
+	result = (SPValue *) palloc(sizeof(SPValue));
 
 	/* Set the type to SPVAL_VARLENA */
 	result->type = SPVAL_STRING;
