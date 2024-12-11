@@ -103,44 +103,28 @@ typedef struct SPValue
 } SPValue;
 
 #define SpInvalidValSize InvalidAllocSize
-#define SpInvalidValDatum NULL
+#define SpInvalidValDatum PointerGetDatum(NULL)
 
 typedef dsa_pointer SPKey;
 typedef struct SpatDBEntry
 {
     /* -------------------- Key -------------------- */
-    SPKey key; /* pointer to a text* allocated in dsa */
+    dsa_pointer key; /* pointer to a text* allocated in dsa */
 
     /* -------------------- Metadata -------------------- */
 
     /* -------------------- Value -------------------- */
 
 
-    Oid valtypid; /* Oid of the Datum stored at valptr (default=InvalidOid).
-							 *
-							 * We need this to call get_typlenbyval to get typlen and tybval.
-							 * Both are needed to know how to copy a Datum into dsa,
-							 * and then how to interpret what's in that dsa position.
-							 *
-							 * In some occasions we may want align info as well.
-							 * If so, use get_typlenbyvalalign
-							 */
+    Oid valtypid;
 
     union
     {
-        Datum val; /* pass-by-value */
-
+        Datum val;
         struct
         {
-            Size valsz; /* VARSIZE_ANY(value)
-						 * = SpInvalidValSize if the value is pass-by-value
-						 */
-
-            dsa_pointer valptr; /* pointer to an opaque Datum allocated in dsa.
-									 * To get a backend-local pointer to this use dsa_get_address(valptr).
-									 * To correctly interpret it though, you probably should take into account
-									 * both the valtypid and the valsz
-									 */
+            Size valsz;
+            dsa_pointer valptr;
         } ref;
     } value;
 } SpatDBEntry;
@@ -374,10 +358,12 @@ void makeEntry(dsa_area* dsa, SpatDBEntry* entry, bool found, Oid valueTypeOid, 
                Datum value)
 {
     /* Set the defaults */
-    // entry->valtypid = InvalidOid;
-    // entry->valsz = InvalidAllocSize;
-    // entry->valptr = InvalidDsaPointer;
-    // entry->valval = InvalidOid;
+    entry->valtypid = InvalidOid;
+
+    entry->value.val = SpInvalidValDatum;
+
+    entry->value.ref.valsz = SpInvalidValSize;
+    entry->value.ref.valptr = InvalidDsaPointer;
 
 
     /* Copying the value into dsa.
