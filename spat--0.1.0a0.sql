@@ -49,6 +49,9 @@ CREATE FUNCTION sset_generic(key text, value anyelement, ttl interval default nu
 /* text types */
 CREATE FUNCTION sset(text, text,    ttl interval default null, nx boolean default null, xx boolean default null) RETURNS spval  AS 'SELECT sset_generic($1, $2::text, $3, $4, $5)' LANGUAGE SQL;
 
+/* jsonb types */
+CREATE FUNCTION sset(text, jsonb,    ttl interval default null, nx boolean default null, xx boolean default null) RETURNS spval  AS 'SELECT sset_generic($1, $2::jsonb, $3, $4, $5)' LANGUAGE SQL;
+
 /* numeric types */
 -- CREATE FUNCTION sset(text, smallint,        ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS smallint AS 'SELECT sset_generic($1, $2::smallint, $3, $4, $5)' LANGUAGE SQL;
 CREATE FUNCTION sset(text, integer,         ex interval DEFAULT null, nx boolean DEFAULT null, xx boolean DEFAULT null) RETURNS spval AS 'SELECT sset_generic($1, $2::integer, $3, $4, $5)' LANGUAGE SQL;

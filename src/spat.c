@@ -54,6 +54,7 @@
 #include "utils/varlena.h"
 #include "utils/timestamp.h"
 #include "utils/datum.h"
+#include "utils/jsonb.h"
 
 
 PG_MODULE_MAGIC;
@@ -85,7 +86,8 @@ typedef enum valueType
 	SPVAL_NULL		= 0,
 	SPVAL_INTEGER	= 1,
 	SPVAL_FLOAT		= 2,
-	SPVAL_STRING	= 3
+	SPVAL_STRING	= 3,
+	SPVAL_JSON		= 4,
 } valueType;
 
 typedef struct spval
@@ -229,6 +231,16 @@ spval_out(PG_FUNCTION_ARGS)
 	case SPVAL_STRING:
 		appendStringInfoString(&output, text_to_cstring(input->value.varlena_val));
 		break;
+	case SPVAL_JSON:
+		/* Handle JSON type */
+		{
+			/* Convert the JSONB varlena to a C string */
+			text *json_text = DatumGetTextP(DirectFunctionCall1(jsonb_out,
+									 PointerGetDatum(input->value.varlena_val)));
+			appendStringInfoString(&output, text_to_cstring(json_text));
+			pfree(json_text); /* Clean up the allocated text object */
+		}
+		break;
 	default:
 		elog(ERROR, "Unknown spval type");
 	}
@@ -271,6 +283,8 @@ static char* typ_name(valueType typ)
 			return "integer";
 		case SPVAL_STRING:
 			return "string";
+		case SPVAL_JSON:
+			return "json";
 		default:
 			return "unknown";
 
@@ -567,7 +581,7 @@ sset_generic(PG_FUNCTION_ARGS)
 	get_typlenbyval(valueTypeOid, &valueTypLen, &valueTypByVal);
 	elog(DEBUG1, "Value Type OID: %u, typByVal: %s, typLen: %d", valueTypeOid, valueTypByVal, valueTypLen);
 
-	if (!(valueTypeOid == TEXTOID || valueTypeOid == INT4OID))
+	if (!(valueTypeOid == TEXTOID || valueTypeOid == INT4OID || valueTypeOid == JSONBOID))
 		elog(ERROR, "Unsupported value type oid=%d", valueTypeOid);
 
 	/* Begin processing */
@@ -714,6 +728,19 @@ sset_generic(PG_FUNCTION_ARGS)
 		result->value.varlena_val = text_result;
 	}
 
+	else if (entry->valtypid == JSONBOID)
+	{
+		/* This actually works with any varlena type, but better be explicit for now */
+
+		text *text_result = (text *) palloc(entry->valsz);
+
+		memcpy(VARDATA(text_result), VARDATA(dsa_get_address(dsa, entry->valptr)), entry->valsz - VARHDRSZ);
+		SET_VARSIZE(text_result, entry->valsz);
+
+		result->type = SPVAL_JSON;
+		result->value.varlena_val = text_result;
+	}
+
 	else if (entry->valtypid == INT4OID)
 	{
 		result->type = SPVAL_INTEGER;
@@ -793,6 +820,21 @@ spget(PG_FUNCTION_ARGS)
 
 			result->type = SPVAL_STRING;
 			result->value.varlena_val = text_result;
+		}
+
+		else if (entry->valtypid == JSONBOID)
+		{
+			Assert(entry->valtypid == JSONBOID);
+
+			result = (spval *) palloc(sizeof(spval));
+			Jsonb *jsonb_result = (Jsonb *) palloc(entry->valsz);
+
+			/* Copy the JSONB data from the shared memory to the local memory */
+			memcpy(jsonb_result, dsa_get_address(dsa, entry->valptr), entry->valsz);
+
+			/* Set up the spval structure */
+			result->type = SPVAL_JSON;
+			result->value.varlena_val = (struct varlena *) jsonb_result; /* Store as varlena */
 		}
 
 		else if (entry->valtypid == INT4OID)
