@@ -88,6 +88,7 @@ typedef struct SPValue
 
 #define SpInvalidValSize InvalidAllocSize
 #define SpInvalidValDatum PointerGetDatum(NULL)
+#define SpMaxTTL DT_NOEND
 
 typedef struct SpatDBEntry
 {
@@ -96,8 +97,9 @@ typedef struct SpatDBEntry
 
     /* -------------------- Metadata -------------------- */
 
-    /* -------------------- Value -------------------- */
+    TimestampTz expireat;
 
+    /* -------------------- Value -------------------- */
 
     Oid valtypid;
 
@@ -307,16 +309,27 @@ spat_db_created_at(PG_FUNCTION_ARGS)
  * Here we basically copy the value like datumCopy does (see src/backend/utils/adt/datum.c)
  * How we do that depends on the type of the value, and its size.
  */
-void makeEntry(dsa_area* dsa, SpatDBEntry* entry, bool found, Oid valueTypeOid, bool valueTypByVal, int16 valueTypLen,
+void makeEntry(dsa_area* dsa, SpatDBEntry* entry, Interval* ex, bool found, Oid valueTypeOid, bool valueTypByVal, int16 valueTypLen,
                Datum value)
 {
     /* Set the defaults */
+    entry->expireat = SpMaxTTL; /* by-default should live forever */
     entry->valtypid = InvalidOid;
 
     entry->value.val = SpInvalidValDatum;
 
     entry->value.ref.valsz = SpInvalidValSize;
     entry->value.ref.valptr = InvalidDsaPointer;
+
+    /* Begin by setting the metadata */
+    if (ex)
+    {
+        /* if ttl interval is given */
+        entry->expireat = DatumGetTimestampTz(DirectFunctionCall2(
+            timestamptz_pl_interval,
+            TimestampTzGetDatum(GetCurrentTimestamp()),
+            PointerGetDatum(ex)));
+    }
 
     if (valueTypByVal)
     {
@@ -466,7 +479,7 @@ spset_generic(PG_FUNCTION_ARGS)
     }
 
     /* The entry should be there, time to populate its value accordingly */
-    makeEntry(dsa, entry, found, valueTypeOid, valueTypByVal, valueTypLen, value);
+    makeEntry(dsa, entry, ex, found, valueTypeOid, valueTypByVal, valueTypLen, value);
 
     /* Prepare the SPvalue to echo / return */
     SPValue* result = makeSpvalFromEntry(dsa, entry);
@@ -578,6 +591,65 @@ del(PG_FUNCTION_ARGS)
     dsa_detach(dsa);
 
     PG_RETURN_BOOL(found);
+}
+
+
+PG_FUNCTION_INFO_V1(getexpireat);
+Datum
+getexpireat(PG_FUNCTION_ARGS)
+{
+    /* Input */
+    text *key = PG_GETARG_TEXT_PP(0);
+
+    /* Output */
+    TimestampTz result;
+
+    /* Processing */
+    dsa_handle dsa_handle;
+    dsa_pointer dsa_key;
+    dsa_area *dsa;
+    dshash_table_handle htab_handle;
+    dshash_table *htab;
+    bool found;
+    SpatDBEntry *entry;
+
+    /* Attach shared memory and get handles */
+    spat_attach_shmem();
+    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+    dsa_handle = g_spat_db->dsa_handle;
+    htab_handle = g_spat_db->htab_handle;
+    LWLockRelease(&g_spat_db->lck);
+
+    /* Attach DSA and hash table */
+    dsa = dsa_attach(dsa_handle);
+    htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
+
+    /* Allocate DSA memory for the key */
+    dsa_key = dsa_allocate(dsa, VARSIZE_ANY(key));
+    if (dsa_key == InvalidDsaPointer)
+        elog(ERROR, "Could not allocate DSA memory for key=%s", text_to_cstring(key));
+    memcpy(dsa_get_address(dsa, dsa_key), key, VARSIZE_ANY(key));
+
+    /* Find the entry in the hash table */
+    entry = dshash_find(htab, dsa_get_address(dsa, dsa_key), false);
+    if (!entry)
+    {
+        found = false;
+    }
+    else
+    {
+        found = true;
+        result = entry->expireat;
+        dshash_release_lock(htab, entry);
+    }
+    /* Detach DSA */
+    dsa_detach(dsa);
+
+    /* Return the result */
+    if (!found || result == SpMaxTTL)
+        PG_RETURN_NULL();
+    PG_RETURN_TIMESTAMPTZ(result);
+
 }
 
 PG_FUNCTION_INFO_V1(sp_db_size);

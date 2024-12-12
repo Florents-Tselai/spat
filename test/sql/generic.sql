@@ -40,3 +40,8 @@ SELECT spget('intkey1');
 
 SELECT del('intkey1');
 SELECT spget('intkey1');
+
+-- TTL
+
+SELECT SPSET('expkey1', 'expvalue1', ttl=> '1 second');
+SELECT ttl('expkey1') < '1 second' ;
