@@ -16,16 +16,16 @@ SELECT spset('tkeygdfg1', 'dfgf');
 SELECT spset('gdf', 'dfgf');
 SELECT spset('gfd', 'dfgf');
 
-SELECT sp_db_size(); --4
+SELECT sp_db_nitems(); --4
 
 -- DELETE and inspect size
 SELECT del('tkey1'); --existing
 SELECT del('aaaa'); --not existing
-SELECT sp_db_size(); --3
+SELECT sp_db_nitems(); --3
 SELECT del('tkeygdfg1');
 SELECT del('gdf');
 SELECT del('gfd');
-SELECT sp_db_size(); --0
+SELECT sp_db_nitems(); --0
 
 -- SET / GET / DEL text
 SELECT spset('key1', 'value1');
@@ -45,3 +45,7 @@ SELECT spget('intkey1');
 
 SELECT SPSET('expkey1', 'expvalue1', ttl=> '1 second');
 SELECT ttl('expkey1') < '1 second' ;
+
+-- DB SIZE BYTES
+SELECT sp_db_size_bytes();
+SELECT sp_db_size();
