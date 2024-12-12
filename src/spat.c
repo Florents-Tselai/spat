@@ -399,12 +399,12 @@ void makeEntry(dsa_area* dsa, SpatDBEntry* entry, bool found, Oid valueTypeOid, 
         else
         {
             /* Otherwise, just copy the varlena datum verbatim */
-
+            Size realSize = (Size) VARSIZE_ANY(value);
             entry->valtypid = valueTypeOid;
-            entry->value.ref.valsz = VARSIZE_ANY(value);
-            entry->value.ref.valptr = dsa_allocate(dsa, VARSIZE_ANY(value));
+            entry->value.ref.valsz = realSize;
+            entry->value.ref.valptr = dsa_allocate(dsa, realSize);
 
-            memcpy(dsa_get_address(dsa, entry->value.ref.valptr), DatumGetPointer(value), VARSIZE_ANY(value));
+            memcpy(dsa_get_address(dsa, entry->value.ref.valptr), DatumGetPointer(value), realSize);
 
             // Size		realSize;
             // char	   *resultptr;
@@ -441,13 +441,14 @@ SPValue* makeSpval(dsa_area* dsa, SpatDBEntry* entry)
     if (entry->valtypid == TEXTOID)
     {
         Assert(entry->valtypid == TEXTOID);
-
         result = (SPValue*)palloc(sizeof(SPValue));
-        text* text_result = (text*)palloc(entry->value.ref.valptr);
 
-        memcpy(VARDATA(text_result), VARDATA(dsa_get_address(dsa, entry->value.ref.valptr)),
-               entry->value.ref.valsz - VARHDRSZ);
-        SET_VARSIZE(text_result, entry->value.ref.valsz);
+        Size realSize = entry->value.ref.valsz;
+
+        text* text_result = (text*)palloc(realSize);
+        SET_VARSIZE(text_result, realSize);
+
+        memcpy(text_result, dsa_get_address(dsa, entry->value.ref.valptr), realSize);
 
         result->type = SPVAL_STRING;
         result->value.varlena_val = text_result;
