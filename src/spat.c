@@ -17,21 +17,6 @@
  * lists from growing too long on average.  Currently, only growing is
  * supported: the hash table never becomes smaller.
  *
- *
- * Supported Types
- * ---------------
- *
- * - text,
- * - smallint, integer, bigint
- * - jsonb (it's in-memory JsonbValue representation is stored)
- * - vector
- *
- *
- * Future Ideas
- * ------------
- * - Use dsa_unpin and a bgw to set a TTL for the whole DB.
- * - Richer dsa statistics
- *
  * Copyright (c) 2024, Florents Tselai
  *
  * IDENTIFICATION
@@ -86,8 +71,7 @@ typedef enum valueType
     SPVAL_INVALID = -1,
     SPVAL_NULL = 0,
     SPVAL_INTEGER = 1,
-    SPVAL_STRING = 2,
-    SPVAL_JSON = 3,
+    SPVAL_STRING = 2
 } valueType;
 
 /* In-memory representation of an SPValue */
@@ -105,7 +89,6 @@ typedef struct SPValue
 #define SpInvalidValSize InvalidAllocSize
 #define SpInvalidValDatum PointerGetDatum(NULL)
 
-typedef dsa_pointer SPKey;
 typedef struct SpatDBEntry
 {
     /* -------------------- Key -------------------- */
@@ -139,7 +122,6 @@ typedef struct SpatDB
 
     dsa_pointer name; /* Metadata about the db itself */
     TimestampTz created_at;
-    int val;
 } SpatDB;
 
 
@@ -196,16 +178,6 @@ spvalue_out(PG_FUNCTION_ARGS)
     case SPVAL_STRING:
         appendStringInfoString(&output, text_to_cstring(input->value.varlena_val));
         break;
-    case SPVAL_JSON:
-        /* Handle JSON type */
-        {
-            /* Convert the JSONB varlena to a C string */
-            text* json_text = DatumGetTextP(DirectFunctionCall1(jsonb_out,
-                PointerGetDatum(input->value.varlena_val)));
-            appendStringInfoString(&output, text_to_cstring(json_text));
-            pfree(json_text); /* Clean up the allocated text object */
-        }
-        break;
     default:
         elog(ERROR, "Unknown spval type");
     }
@@ -236,25 +208,6 @@ void _PG_init()
 }
 
 
-static char* typ_name(valueType typ)
-{
-    switch (typ)
-    {
-    case SPVAL_INVALID:
-        return "invalid";
-    case SPVAL_NULL:
-        return "null";
-    case SPVAL_INTEGER:
-        return "integer";
-    case SPVAL_STRING:
-        return "string";
-    case SPVAL_JSON:
-        return "json";
-    default:
-        return "unknown";
-    }
-}
-
 static const dshash_parameters default_hash_params = {
     .key_size = sizeof(dsa_pointer),
     .entry_size = sizeof(SpatDBEntry),
@@ -276,9 +229,6 @@ spat_init_shmem(void* ptr)
     //dsa_pin_mapping() TOOD: maybe?
 
     db->dsa_handle = dsa_get_handle(dsa);
-
-    /* Initialize metadata */
-    db->val = -1; /* Default value */
 
     db->name = dsa_allocate0(dsa, SPAT_NAME_MAXSIZE); /* Allocate zeroed-out memory */
     memcpy(dsa_get_address(dsa, db->name), g_guc_spat_db_name, SPAT_NAME_MAXSIZE - 1);
@@ -353,6 +303,9 @@ spat_db_created_at(PG_FUNCTION_ARGS)
 
 /*
  * Builds an appropriate in the dsa, given a value Datum.
+ * The key should have alerady been allocated and copied (e.g. by hash_find_or_insert).
+ * Here we basically copy the value like datumCopy does (see src/backend/utils/adt/datum.c)
+ * How we do that depends on the type of the value, and its size.
  */
 void makeEntry(dsa_area* dsa, SpatDBEntry* entry, bool found, Oid valueTypeOid, bool valueTypByVal, int16 valueTypLen,
                Datum value)
@@ -364,14 +317,6 @@ void makeEntry(dsa_area* dsa, SpatDBEntry* entry, bool found, Oid valueTypeOid, 
 
     entry->value.ref.valsz = SpInvalidValSize;
     entry->value.ref.valptr = InvalidDsaPointer;
-
-
-    /* Copying the value into dsa.
-     * How we do that depends on the type of the value, and its size.
-     * This should generally follow the logic of
-     * Datum datumCopy(Datum value, bool typByVal, int typLen)
-     * in src/backend/utils/adt/datum.c
-     */
 
     if (valueTypByVal)
     {
@@ -387,14 +332,6 @@ void makeEntry(dsa_area* dsa, SpatDBEntry* entry, bool found, Oid valueTypeOid, 
             /* Flatten into the caller's memory context */
             elog(ERROR, "expanded value types are not currently supported");
 
-            // ExpandedObjectHeader *eoh = DatumGetEOHP(value);
-            // Size		resultsize;
-            // char	   *resultptr;
-            //
-            // resultsize = EOH_get_flat_size(eoh);
-            // resultptr = (char *) palloc(resultsize);
-            // EOH_flatten_into(eoh, resultptr, resultsize);
-            // res = PointerGetDatum(resultptr);
         }
         else
         {
@@ -406,33 +343,17 @@ void makeEntry(dsa_area* dsa, SpatDBEntry* entry, bool found, Oid valueTypeOid, 
 
             memcpy(dsa_get_address(dsa, entry->value.ref.valptr), DatumGetPointer(value), realSize);
 
-            // Size		realSize;
-            // char	   *resultptr;
-            //
-            // realSize = (Size) VARSIZE_ANY(vl);
-            // resultptr = (char *) palloc(realSize);
-            // memcpy(resultptr, vl, realSize);
-            // res = PointerGetDatum(resultptr);
         }
     }
     else
     {
         /* Pass by reference, but not varlena, so not toasted */
+        elog(ERROR, "Pass by reference, but not varlena value types are not currently supported");
 
-        /* datumCopy */
-
-        // Size		realSize;
-        // char	   *resultptr;
-        //
-        // realSize = datumGetSize(value, typByVal, typLen);
-        //
-        // resultptr = (char *) palloc(realSize);
-        // memcpy(resultptr, DatumGetPointer(value), realSize);
-        // res = PointerGetDatum(resultptr);
     }
 }
 
-SPValue* makeSpval(dsa_area* dsa, SpatDBEntry* entry)
+SPValue* makeSpvalFromEntry(dsa_area* dsa, SpatDBEntry* entry)
 {
     SPValue* result;
 
@@ -454,20 +375,6 @@ SPValue* makeSpval(dsa_area* dsa, SpatDBEntry* entry)
         result->value.varlena_val = text_result;
     }
 
-    if (entry->valtypid == JSONBOID)
-    {
-        Assert(entry->valtypid == JSONBOID);
-
-        result = (SPValue*)palloc(sizeof(SPValue));
-        Jsonb* jsonb_result = (Jsonb*)palloc(entry->value.ref.valsz);
-
-        /* Copy the JSONB data from the shared memory to the local memory */
-        memcpy(jsonb_result, dsa_get_address(dsa, entry->value.ref.valptr), entry->value.ref.valsz);
-
-        /* Set up the spval structure */
-        result->type = SPVAL_JSON;
-        result->value.varlena_val = (struct varlena*)jsonb_result; /* Store as varlena */
-    }
 
     if (entry->valtypid == INT4OID)
     {
@@ -479,10 +386,10 @@ SPValue* makeSpval(dsa_area* dsa, SpatDBEntry* entry)
     return result;
 }
 
-PG_FUNCTION_INFO_V1(sset_generic);
+PG_FUNCTION_INFO_V1(spset_generic);
 
 Datum
-sset_generic(PG_FUNCTION_ARGS)
+spset_generic(PG_FUNCTION_ARGS)
 {
     /* Input */
     text* key = PG_GETARG_TEXT_PP(0);
@@ -544,12 +451,12 @@ sset_generic(PG_FUNCTION_ARGS)
         elog(ERROR, "Could not allocate DSA memory for key=%s", text_to_cstring(key));
     memcpy(dsa_get_address(dsa, dsa_key), key, VARSIZE_ANY(key));
 
+    /* Debug */
     Assert(memcmp(dsa_get_address(dsa, dsa_key), key, VARSIZE_ANY(key)) == 0);
-
     elog(DEBUG1, "DSA allocated for key=%s", text_to_cstring(key));
-
     elog(DEBUG1, "Searching for key=%s", text_to_cstring(key));
-    /* search for the key */
+
+    /* Insert the key */
     entry = dshash_find_or_insert(htab, dsa_get_address(dsa, dsa_key), &found);
     if (entry == NULL)
     {
@@ -558,9 +465,11 @@ sset_generic(PG_FUNCTION_ARGS)
         elog(ERROR, "dshash_find_or_insert failed, probably out-of-memory");
     }
 
+    /* The entry should be there, time to populate its value accordingly */
     makeEntry(dsa, entry, found, valueTypeOid, valueTypByVal, valueTypLen, value);
 
-    SPValue* result = makeSpval(dsa, entry);
+    /* Prepare the SPvalue to echo / return */
+    SPValue* result = makeSpvalFromEntry(dsa, entry);
 
     dshash_release_lock(htab, entry);
 
@@ -617,7 +526,7 @@ spget(PG_FUNCTION_ARGS)
 
     else
     {
-        result = makeSpval(dsa, entry);
+        result = makeSpvalFromEntry(dsa, entry);
         dshash_release_lock(htab, entry);
     }
 
@@ -671,16 +580,6 @@ del(PG_FUNCTION_ARGS)
     PG_RETURN_BOOL(found);
 }
 
-PG_FUNCTION_INFO_V1(get);
-
-Datum
-get(PG_FUNCTION_ARGS)
-{
-    text* key = PG_GETARG_TEXT_PP(0);
-
-    PG_RETURN_TEXT_P(cstring_to_text("Hello World!"));
-}
-
 PG_FUNCTION_INFO_V1(sp_db_size);
 
 Datum
@@ -720,41 +619,4 @@ sp_db_size(PG_FUNCTION_ARGS)
     dsa_detach(dsa);
 
     PG_RETURN_INT32(nitems);
-}
-
-
-PG_FUNCTION_INFO_V1(ttl);
-
-Datum
-ttl(PG_FUNCTION_ARGS)
-{
-}
-
-PG_FUNCTION_INFO_V1(sp_db_clear);
-
-Datum
-sp_db_clear(PG_FUNCTION_ARGS)
-{
-    elog(ERROR, "sp_db_clear not implemented yet");
-}
-
-PG_FUNCTION_INFO_V1(spval_example);
-
-Datum
-spval_example(PG_FUNCTION_ARGS)
-{
-    SPValue* result;
-    const char* example_text = "Hello, PostgreSQL!";
-
-    /* Allocate memory for spval */
-    result = (SPValue*)palloc(sizeof(SPValue));
-
-    /* Set the type to SPVAL_VARLENA */
-    result->type = SPVAL_STRING;
-
-    /* Convert the C string to a PostgreSQL text datum */
-    result->value.varlena_val = cstring_to_text(example_text);
-
-    /* Return the spval structure */
-    PG_RETURN_POINTER(result);
 }

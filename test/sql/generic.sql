@@ -11,10 +11,10 @@ SELECT spat_db_created_at() NOTNULL;
 SET spat.db = 'spat-default';
 
 -- SET - DELETE - SIZE
-SELECT sset('tkey1', 'dfgf');
-SELECT sset('tkeygdfg1', 'dfgf');
-SELECT sset('gdf', 'dfgf');
-SELECT sset('gfd', 'dfgf');
+SELECT spset('tkey1', 'dfgf');
+SELECT spset('tkeygdfg1', 'dfgf');
+SELECT spset('gdf', 'dfgf');
+SELECT spset('gfd', 'dfgf');
 
 SELECT sp_db_size(); --4
 
@@ -28,22 +28,15 @@ SELECT del('gfd');
 SELECT sp_db_size(); --0
 
 -- SET / GET / DEL text
-SELECT sset('key1', 'value1');
+SELECT spset('key1', 'value1');
 SELECT spget('key1');
 
 SELECT del('key1');
 SELECT spget('key1');
 
--- SET / GET / DEL text
-SELECT sset('intkey1', 10);
+-- SET / GET / DEL integer
+SELECT spset('intkey1', 10);
 SELECT spget('intkey1');
 
 SELECT del('intkey1');
 SELECT spget('intkey1');
-
--- SET / GET / DEL jsonb
-SELECT sset('js', '{"product": "PostgreSQL", "version": 9.4, "jsonb": true}'::jsonb);
-SELECT spget('js');
-
-SELECT del('js');
-SELECT spget('js');

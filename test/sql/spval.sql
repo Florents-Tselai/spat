@@ -1,1 +1,0 @@
-select spval_example();
