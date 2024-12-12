@@ -56,5 +56,7 @@ CREATE FUNCTION sptype(text) RETURNS text AS 'MODULE_PATHNAME' LANGUAGE SQL;
 
 CREATE FUNCTION del(text) RETURNS bool AS 'MODULE_PATHNAME' LANGUAGE C;
 
+/* -------------------- TTL -------------------- */
 
-
+CREATE FUNCTION getexpireat(text) RETURNS timestamptz AS 'MODULE_PATHNAME' LANGUAGE C;
+CREATE FUNCTION ttl(text) RETURNS INTERVAL AS 'select getexpireat($1) - now()' LANGUAGE SQL;

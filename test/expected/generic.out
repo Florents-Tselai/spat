@@ -145,3 +145,16 @@ SELECT spget('intkey1');
  
 (1 row)
 
+-- TTL
+SELECT SPSET('expkey1', 'expvalue1', ttl=> '1 second');
+   spset   
+-----------
+ expvalue1
+(1 row)
+
+SELECT ttl('expkey1') < '1 second' ;
+ ?column? 
+----------
+ t
+(1 row)
+
