@@ -46,10 +46,10 @@ SELECT spset('gfd', 'dfgf');
  dfgf
 (1 row)
 
-SELECT sp_db_size(); --4
- sp_db_size 
-------------
-          4
+SELECT sp_db_nitems(); --4
+ sp_db_nitems 
+--------------
+            4
 (1 row)
 
 -- DELETE and inspect size
@@ -65,10 +65,10 @@ SELECT del('aaaa'); --not existing
  f
 (1 row)
 
-SELECT sp_db_size(); --3
- sp_db_size 
-------------
-          3
+SELECT sp_db_nitems(); --3
+ sp_db_nitems 
+--------------
+            3
 (1 row)
 
 SELECT del('tkeygdfg1');
@@ -89,10 +89,10 @@ SELECT del('gfd');
  t
 (1 row)
 
-SELECT sp_db_size(); --0
- sp_db_size 
-------------
-          0
+SELECT sp_db_nitems(); --0
+ sp_db_nitems 
+--------------
+            0
 (1 row)
 
 -- SET / GET / DEL text
@@ -156,5 +156,18 @@ SELECT ttl('expkey1') < '1 second' ;
  ?column? 
 ----------
  t
+(1 row)
+
+-- DB SIZE BYTES
+SELECT sp_db_size_bytes();
+ sp_db_size_bytes 
+------------------
+          1048576
+(1 row)
+
+SELECT sp_db_size();
+ sp_db_size 
+------------
+ 1024 kB
 (1 row)
 

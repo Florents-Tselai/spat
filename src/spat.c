@@ -652,10 +652,10 @@ getexpireat(PG_FUNCTION_ARGS)
 
 }
 
-PG_FUNCTION_INFO_V1(sp_db_size);
+PG_FUNCTION_INFO_V1(sp_db_nitems);
 
 Datum
-sp_db_size(PG_FUNCTION_ARGS)
+sp_db_nitems(PG_FUNCTION_ARGS)
 {
     int32 nitems = 0;
 
@@ -691,4 +691,32 @@ sp_db_size(PG_FUNCTION_ARGS)
     dsa_detach(dsa);
 
     PG_RETURN_INT32(nitems);
+}
+
+PG_FUNCTION_INFO_V1(sp_db_size_bytes);
+Datum sp_db_size_bytes(PG_FUNCTION_ARGS)
+{
+    Size result;
+
+    /* Processing */
+    dsa_handle dsa_handle;
+    dsa_area* dsa;
+    dshash_table_handle htab_handle;
+    dshash_table* htab;
+    SpatDBEntry* entry;
+
+    /* Begin processing */
+    spat_attach_shmem();
+    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+    dsa_handle = g_spat_db->dsa_handle;
+    htab_handle = g_spat_db->htab_handle;
+    LWLockRelease(&g_spat_db->lck);
+
+    /* in dsa territory now */
+    dsa = dsa_attach(dsa_handle);
+    result = dsa_get_total_size(dsa);
+    /* leaving dsa territory */
+    dsa_detach(dsa);
+
+    PG_RETURN_INT64(result);
 }

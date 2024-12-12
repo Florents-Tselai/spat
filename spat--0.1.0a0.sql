@@ -2,7 +2,11 @@
 
 /* -------------------- DB Info -------------------- */
 
-CREATE FUNCTION sp_db_size() RETURNS INTEGER AS 'MODULE_PATHNAME' LANGUAGE C;
+CREATE FUNCTION sp_db_size_bytes() RETURNS BIGINT AS 'MODULE_PATHNAME' LANGUAGE C;
+
+CREATE FUNCTION sp_db_size() RETURNS TEXT AS 'SELECT pg_size_pretty(sp_db_size_bytes())' LANGUAGE SQL;
+
+CREATE FUNCTION sp_db_nitems() RETURNS INTEGER AS 'MODULE_PATHNAME' LANGUAGE C;
 
 CREATE FUNCTION spat_db_name()                  RETURNS TEXT      AS 'MODULE_PATHNAME' LANGUAGE C;
 
