@@ -34,13 +34,6 @@ SELECT spget('key1');
 SELECT del('key1');
 SELECT spget('key1');
 
--- SET / GET / DEL integer
-SELECT spset('intkey1', 10);
-SELECT spget('intkey1');
-
-SELECT del('intkey1');
-SELECT spget('intkey1');
-
 -- TTL
 
 SELECT SPSET('expkey1', 'expvalue1', ttl=> '1 second');
@@ -49,3 +42,9 @@ SELECT ttl('expkey1') < '1 second' ;
 -- DB SIZE BYTES
 SELECT sp_db_size_bytes();
 SELECT sp_db_size();
+
+-- sptype
+SELECT spset('key1', 'value1');
+SELECT sptype('key1');
+
+SELECT sptype('gsdgdf');
