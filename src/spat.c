@@ -127,9 +127,104 @@ typedef struct SpatDB
     TimestampTz created_at;
 } SpatDB;
 
+/* ---------------------------------------- GUC Variables ---------------------------------------- */
+
+static char* g_guc_spat_db_name = NULL;
+
+/* ---------------------------------------- Shared Memory Declarations ---------------------------------------- */
+
+void _PG_init();
+void spat_clean_on_exit(int code, Datum arg);
+static void spat_init_shmem(void* ptr);
+static void spat_attach_shmem(void);
+
+/* ---------------------------------------- Global state ---------------------------------------- */
+
+static const dshash_parameters default_hash_params = {
+    .key_size = sizeof(dsa_pointer),
+    .entry_size = sizeof(SpatDBEntry),
+    .compare_function = dshash_memcmp,
+    .hash_function = dshash_memhash,
+    .copy_function = dshash_memcpy
+};
+
+static SpatDB* g_spat_db = NULL;
+static dsa_area* g_dsa = NULL;
+static dshash_table* g_htab = NULL;
+
+/* ---------------------------------------- Shared Memory Implementation ---------------------------------------- */
+
+void spat_clean_on_exit(int code, Datum arg) {
+    if (g_dsa != NULL) {
+        dsa_detach(g_dsa);
+    }
+}
+
+void _PG_init()
+{
+    DefineCustomStringVariable("spat.db",
+                               "Current DB name",
+                               "long desc here",
+                               &g_guc_spat_db_name,
+                               SPAT_NAME_DEFAULT,
+                               PGC_USERSET, 0,
+                               NULL, NULL, NULL);
+
+    MarkGUCPrefixReserved("spat");
+
+    on_proc_exit(spat_clean_on_exit, (Datum) 0);
+}
+
+
+static void
+spat_init_shmem(void* ptr)
+{
+    SpatDB* db = (SpatDB*)ptr;
+
+    int tranche_id = LWLockNewTrancheId();
+    LWLockInitialize(&db->lck, tranche_id);
+
+    dsa_area* dsa = dsa_create(tranche_id);
+    dsa_pin(dsa);
+
+    db->dsa_handle = dsa_get_handle(dsa);
+
+    db->name = dsa_allocate0(dsa, SPAT_NAME_MAXSIZE); /* Allocate zeroed-out memory */
+    memcpy(dsa_get_address(dsa, db->name), g_guc_spat_db_name, SPAT_NAME_MAXSIZE - 1);
+
+    db->created_at = GetCurrentTimestamp();
+
+    dshash_table* htab = dshash_create(dsa, &default_hash_params, NULL);
+    db->htab_handle = dshash_get_hash_table_handle(htab);
+
+    dsa_detach(dsa);
+}
+
+static void
+spat_attach_shmem(void)
+{
+    bool found;
+
+    g_spat_db = GetNamedDSMSegment(g_guc_spat_db_name,
+                                   sizeof(SpatDB),
+                                   spat_init_shmem,
+                                   &found);
+    LWLockRegisterTranche(g_spat_db->lck.tranche, g_guc_spat_db_name);
+
+    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+    g_dsa = dsa_attach(g_spat_db->dsa_handle);
+    LWLockRelease(&g_spat_db->lck);
+
+    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+    g_htab = dshash_attach(g_dsa, &default_hash_params, g_spat_db->htab_handle, NULL);
+    LWLockRelease(&g_spat_db->lck);
+}
+
+/* ---------------------------------------- Commands Forward Declarations ---------------------------------------- */
+
+/* ---------------------------------------- Commands Implementation ---------------------------------------- */
 
 PG_FUNCTION_INFO_V1(spvalue_in);
-
 Datum
 spvalue_in(PG_FUNCTION_ARGS)
 {
@@ -188,123 +283,13 @@ spvalue_out(PG_FUNCTION_ARGS)
     PG_RETURN_CSTRING(output.data);
 }
 
-/* ---------------------------------------- Global state ---------------------------------------- */
-
-static SpatDB* g_spat_db = NULL; /* Current (working) database */
-static dsa_area* g_dsa = NULL;
-static dshash_table* g_htab = NULL;
-
-/* TODO: maybe *g_dsa here too? */
-
-/* ---------------------------------------- GUC Variables ---------------------------------------- */
-
-static char* g_guc_spat_db_name = NULL;
-
-void cleanup_dsa_on_exit(int code, Datum arg) {
-    if (g_dsa != NULL) {
-        dsa_detach(g_dsa);
-        g_dsa = NULL;
-    }
-}
-
-
-
-void _PG_init()
-{
-    DefineCustomStringVariable("spat.db",
-                               "Current DB name",
-                               "long desc here",
-                               &g_guc_spat_db_name,
-                               SPAT_NAME_DEFAULT,
-                               PGC_USERSET, 0,
-                               NULL, NULL, NULL);
-
-    MarkGUCPrefixReserved("spat");
-
-    on_proc_exit(cleanup_dsa_on_exit, (Datum) 0);
-}
-
-
-static const dshash_parameters default_hash_params = {
-    .key_size = sizeof(dsa_pointer),
-    .entry_size = sizeof(SpatDBEntry),
-    .compare_function = dshash_memcmp,
-    .hash_function = dshash_memhash,
-    .copy_function = dshash_memcpy
-};
-
-static void
-spat_init_shmem(void* ptr)
-{
-    SpatDB* db = (SpatDB*)ptr;
-
-    int tranche_id = LWLockNewTrancheId();
-    LWLockInitialize(&db->lck, tranche_id);
-
-    dsa_area* dsa = dsa_create(tranche_id);
-    dsa_pin(dsa);
-    //dsa_pin_mapping() TOOD: maybe?
-
-    db->dsa_handle = dsa_get_handle(dsa);
-
-    db->name = dsa_allocate0(dsa, SPAT_NAME_MAXSIZE); /* Allocate zeroed-out memory */
-    memcpy(dsa_get_address(dsa, db->name), g_guc_spat_db_name, SPAT_NAME_MAXSIZE - 1);
-
-    db->created_at = GetCurrentTimestamp();
-
-    dshash_table* htab = dshash_create(dsa, &default_hash_params, NULL);
-    db->htab_handle = dshash_get_hash_table_handle(htab);
-
-    dsa_detach(dsa);
-}
-
-static void
-spat_attach_shmem(void)
-{
-    bool found;
-
-    g_spat_db = GetNamedDSMSegment(g_guc_spat_db_name,
-                                   sizeof(SpatDB),
-                                   spat_init_shmem,
-                                   &found);
-    LWLockRegisterTranche(g_spat_db->lck.tranche, g_guc_spat_db_name);
-
-    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-    g_dsa = dsa_attach(g_spat_db->dsa_handle);
-    LWLockRelease(&g_spat_db->lck);
-
-    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-    g_htab = dshash_attach(g_dsa, &default_hash_params, g_spat_db->htab_handle, NULL);
-    LWLockRelease(&g_spat_db->lck);
-}
 
 PG_FUNCTION_INFO_V1(spat_db_name);
 
 Datum
 spat_db_name(PG_FUNCTION_ARGS)
 {
-    dsa_handle dsa_handle;
-    dsa_area* dsa;
-    char message[NAMEDATALEN];
-
-    /* Attach to shared memory and acquire the lock */
-    spat_attach_shmem();
-    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-
-
-    LWLockRelease(&g_spat_db->lck);
-
-    /* Attach to the DSA area */
-    // dsa = dsa_attach(dsa_handle);
-
-    /* Copy the message from shared memory */
-    memcpy(message, dsa_get_address(g_dsa, g_spat_db->name), NAMEDATALEN);
-
-    /* Ensure the message is null-terminated */
-    message[NAMEDATALEN - 1] = '\0';
-
-    // dsa_detach(dsa);
-    PG_RETURN_TEXT_P(cstring_to_text(message));
+    PG_RETURN_TEXT_P(cstring_to_text(g_guc_spat_db_name));
 }
 
 PG_FUNCTION_INFO_V1(spat_db_created_at);
@@ -315,6 +300,7 @@ spat_db_created_at(PG_FUNCTION_ARGS)
     TimestampTz result;
 
     spat_attach_shmem();
+
     LWLockAcquire(&g_spat_db->lck, LW_SHARED);
 
     result = g_spat_db->created_at;
