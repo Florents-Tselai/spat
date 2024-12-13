@@ -134,7 +134,6 @@ static char* g_guc_spat_db_name = NULL;
 /* ---------------------------------------- Shared Memory Declarations ---------------------------------------- */
 
 void _PG_init();
-void spat_clean_on_exit(int code, Datum arg);
 static void spat_init_shmem(void* ptr);
 static void spat_attach_shmem(void);
 
@@ -154,12 +153,6 @@ static dshash_table* g_htab = NULL;
 
 /* ---------------------------------------- Shared Memory Implementation ---------------------------------------- */
 
-void spat_clean_on_exit(int code, Datum arg) {
-    if (g_dsa != NULL) {
-        dsa_detach(g_dsa);
-    }
-}
-
 void _PG_init()
 {
     DefineCustomStringVariable("spat.db",
@@ -172,7 +165,7 @@ void _PG_init()
 
     MarkGUCPrefixReserved("spat");
 
-    on_proc_exit(spat_clean_on_exit, (Datum) 0);
+//    on_proc_exit(spat_clean_on_exit, (Datum) 0);
 }
 
 
@@ -211,13 +204,33 @@ spat_attach_shmem(void)
                                    &found);
     LWLockRegisterTranche(g_spat_db->lck.tranche, g_guc_spat_db_name);
 
-    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-    g_dsa = dsa_attach(g_spat_db->dsa_handle);
-    LWLockRelease(&g_spat_db->lck);
+    if (!g_dsa) {
+        Assert(!g_dsa);
+        LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+        g_dsa = dsa_attach(g_spat_db->dsa_handle);
+        LWLockRelease(&g_spat_db->lck);
+    }
 
-    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-    g_htab = dshash_attach(g_dsa, &default_hash_params, g_spat_db->htab_handle, NULL);
-    LWLockRelease(&g_spat_db->lck);
+    if (!g_htab) {
+        Assert(!g_htab);
+        LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+        g_htab = dshash_attach(g_dsa, &default_hash_params, g_spat_db->htab_handle, NULL);
+        LWLockRelease(&g_spat_db->lck);
+    }
+
+}
+
+static void
+spat_detach_shmem(void) {
+    if (g_dsa) {
+        dsa_detach(g_dsa);
+        g_dsa = NULL;
+    }
+
+    if (g_htab) {
+        dshash_detach(g_htab);
+        g_htab = NULL;
+    }
 }
 
 /* ---------------------------------------- Commands Common ---------------------------------------- */
@@ -312,9 +325,9 @@ PG_FUNCTION_INFO_V1(spat_db_created_at);
 Datum
 spat_db_created_at(PG_FUNCTION_ARGS)
 {
-    TimestampTz result;
-
     spat_attach_shmem();
+
+    TimestampTz result;
 
     LWLockAcquire(&g_spat_db->lck, LW_SHARED);
 
@@ -322,6 +335,7 @@ spat_db_created_at(PG_FUNCTION_ARGS)
 
     LWLockRelease(&g_spat_db->lck);
 
+    spat_detach_shmem();
     PG_RETURN_TIMESTAMPTZ(result);
 }
 
@@ -492,6 +506,8 @@ spset_generic(PG_FUNCTION_ARGS)
 
     dshash_release_lock(g_htab, entry);
 
+    spat_detach_shmem();
+
     PG_RETURN_POINTER(result);
 }
 
@@ -500,6 +516,9 @@ PG_FUNCTION_INFO_V1(spget);
 Datum
 spget(PG_FUNCTION_ARGS)
 {
+    /* Begin processing */
+    spat_attach_shmem();
+
     /* Input */
     text* key = PG_GETARG_TEXT_PP(0);
     Size keysz = VARSIZE_ANY(key);
@@ -511,9 +530,6 @@ spget(PG_FUNCTION_ARGS)
     dsa_pointer dsa_key;
     bool found;
     SpatDBEntry* entry;
-
-    /* Begin processing */
-    spat_attach_shmem();
 
    dsa_key = dsa_copy_to(g_dsa, key, keysz);
 
@@ -530,6 +546,7 @@ spget(PG_FUNCTION_ARGS)
         dshash_release_lock(g_htab, entry);
     }
 
+    spat_detach_shmem();
 
     if (!result)
         PG_RETURN_NULL();
@@ -549,6 +566,7 @@ del(PG_FUNCTION_ARGS)
 
     bool found = dshash_delete_key(g_htab, DSA_POINTER_TO_LOCAL(dsa_key));
 
+    spat_detach_shmem();
     PG_RETURN_BOOL(found);
 }
 
@@ -579,6 +597,7 @@ getexpireat(PG_FUNCTION_ARGS)
         dshash_release_lock(g_htab, entry);
     }
 
+    spat_detach_shmem();
     if (!found || result == SpMaxTTL)
         PG_RETURN_NULL();
     PG_RETURN_TIMESTAMPTZ(result);
@@ -605,16 +624,16 @@ sp_db_nitems(PG_FUNCTION_ARGS)
 
     dshash_seq_term(&status);
 
+    spat_detach_shmem();
     PG_RETURN_INT32(nitems);
 }
 
 PG_FUNCTION_INFO_V1(sp_db_size_bytes);
 Datum sp_db_size_bytes(PG_FUNCTION_ARGS)
 {
-
     spat_attach_shmem();
-
-    Size result = dsa_get_total_size(g_dsa);
-
+    Size result = -1;
+    result = dsa_get_total_size(g_dsa);
+    spat_detach_shmem();
     PG_RETURN_INT64(result);
 }
