@@ -220,7 +220,22 @@ spat_attach_shmem(void)
     LWLockRelease(&g_spat_db->lck);
 }
 
-/* ---------------------------------------- Commands Forward Declarations ---------------------------------------- */
+/* ---------------------------------------- Commands Common ---------------------------------------- */
+
+dsa_pointer dsa_copy_to(dsa_area *dsa, void *val, Size valsz);
+
+dsa_pointer dsa_copy_to(dsa_area *dsa, void *val, Size valsz)
+{
+    dsa_pointer allocedptr = dsa_allocate0(dsa, valsz);
+    if (!DsaPointerIsValid(allocedptr))
+        elog(ERROR, "dsa_allocate0 failed");
+
+    memcpy(dsa_get_address(dsa, allocedptr), val, valsz);
+
+    return allocedptr;
+}
+
+#define DSA_POINTER_TO_LOCAL(p) dsa_get_address(g_dsa, (p))
 
 /* ---------------------------------------- Commands Implementation ---------------------------------------- */
 
@@ -411,8 +426,11 @@ PG_FUNCTION_INFO_V1(spset_generic);
 Datum
 spset_generic(PG_FUNCTION_ARGS)
 {
+    spat_attach_shmem();
+
     /* Input */
     text* key = PG_GETARG_TEXT_PP(0);
+    Size keysz = VARSIZE_ANY(key);
     Datum value = PG_GETARG_DATUM(1);
     Interval* ex = PG_ARGISNULL(2) ? NULL : PG_GETARG_INTERVAL_P(2);
     bool nx = PG_ARGISNULL(3) ? NULL : PG_GETARG_BOOL(3);
@@ -425,8 +443,8 @@ spset_generic(PG_FUNCTION_ARGS)
     int16 valueTypLen;
 
     /* Processing */
-    dsa_pointer dsa_key;
-    dsa_pointer dsa_value;
+    dsa_pointer dsa_key= dsa_copy_to(g_dsa, key, keysz);
+
     bool exclusive = false; /* TODO: This depends on the xx / nx */
     bool found;
     SpatDBEntry* entry;
@@ -451,19 +469,10 @@ spset_generic(PG_FUNCTION_ARGS)
         elog(ERROR, "Unsupported value type oid=%d", valueTypeOid);
 
     /* Begin processing */
-    spat_attach_shmem();
 
-
-    /* in dsa territory now */
-
-    /* Allocate dsa space for key and copy it from local memory to that dsa*/
-    dsa_key = dsa_allocate(g_dsa, VARSIZE_ANY(key));
-    if (dsa_key == InvalidDsaPointer)
-        elog(ERROR, "Could not allocate DSA memory for key=%s", text_to_cstring(key));
-    memcpy(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key));
 
     /* Debug */
-    Assert(memcmp(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key)) == 0);
+    Assert(memcmp(DSA_POINTER_TO_LOCAL(dsa_key), key, VARSIZE_ANY(key)) == 0);
     elog(DEBUG1, "DSA allocated for key=%s", text_to_cstring(key));
     elog(DEBUG1, "Searching for key=%s", text_to_cstring(key));
 
@@ -493,6 +502,7 @@ spget(PG_FUNCTION_ARGS)
 {
     /* Input */
     text* key = PG_GETARG_TEXT_PP(0);
+    Size keysz = VARSIZE_ANY(key);
 
     /* Output */
     SPValue* result;
@@ -505,11 +515,7 @@ spget(PG_FUNCTION_ARGS)
     /* Begin processing */
     spat_attach_shmem();
 
-    /* Allocate dsa space for key and copy it from local memory to that dsa*/
-    dsa_key = dsa_allocate(g_dsa, VARSIZE_ANY(key));
-    if (dsa_key == InvalidDsaPointer)
-        elog(ERROR, "Could not allocate DSA memory for key=%s", text_to_cstring(key));
-    memcpy(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key));
+   dsa_key = dsa_copy_to(g_dsa, key, keysz);
 
     Assert(memcmp(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key)) == 0);
 
@@ -536,25 +542,12 @@ PG_FUNCTION_INFO_V1(del);
 Datum
 del(PG_FUNCTION_ARGS)
 {
-    /* Input */
-    text* key = PG_GETARG_TEXT_PP(0);
-
-    /* Processing */
-    dsa_pointer dsa_key;
-    bool found;
-
-    /* Begin processing */
     spat_attach_shmem();
 
+    text* key = PG_GETARG_TEXT_PP(0);
+    dsa_pointer dsa_key = dsa_copy_to(g_dsa, key, VARSIZE_ANY(key));
 
-    /* Allocate dsa space for key and copy it from local memory to that dsa*/
-    dsa_key = dsa_allocate(g_dsa, VARSIZE_ANY(key));
-    if (dsa_key == InvalidDsaPointer)
-        elog(ERROR, "Could not allocate DSA memory for key=%s", text_to_cstring(key));
-    memcpy(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key));
-
-    found = dshash_delete_key(g_htab, dsa_get_address(g_dsa, dsa_key));
-
+    bool found = dshash_delete_key(g_htab, DSA_POINTER_TO_LOCAL(dsa_key));
 
     PG_RETURN_BOOL(found);
 }
@@ -564,29 +557,17 @@ PG_FUNCTION_INFO_V1(getexpireat);
 Datum
 getexpireat(PG_FUNCTION_ARGS)
 {
-    /* Input */
+    spat_attach_shmem();
+
     text *key = PG_GETARG_TEXT_PP(0);
+    Size keysz = VARSIZE_ANY(key);
+    dsa_pointer dsa_key = dsa_copy_to(g_dsa, key, keysz);
 
     /* Output */
     TimestampTz result;
 
-    /* Processing */
-    dsa_pointer dsa_key;
-
     bool found;
-    SpatDBEntry *entry;
-
-    /* Attach shared memory and get handles */
-    spat_attach_shmem();
-
-    /* Allocate DSA memory for the key */
-    dsa_key = dsa_allocate(g_dsa, VARSIZE_ANY(key));
-    if (dsa_key == InvalidDsaPointer)
-        elog(ERROR, "Could not allocate DSA memory for key=%s", text_to_cstring(key));
-    memcpy(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key));
-
-    /* Find the entry in the hash table */
-    entry = dshash_find(g_htab, dsa_get_address(g_dsa, dsa_key), false);
+    SpatDBEntry *entry = dshash_find(g_htab, DSA_POINTER_TO_LOCAL(dsa_key), false);
     if (!entry)
     {
         found = false;
@@ -598,12 +579,9 @@ getexpireat(PG_FUNCTION_ARGS)
         dshash_release_lock(g_htab, entry);
     }
 
-
-    /* Return the result */
     if (!found || result == SpMaxTTL)
         PG_RETURN_NULL();
     PG_RETURN_TIMESTAMPTZ(result);
-
 }
 
 PG_FUNCTION_INFO_V1(sp_db_nitems);
@@ -611,13 +589,11 @@ PG_FUNCTION_INFO_V1(sp_db_nitems);
 Datum
 sp_db_nitems(PG_FUNCTION_ARGS)
 {
+    spat_attach_shmem();
+
     int32 nitems = 0;
 
-    /* Processing */
     SpatDBEntry* entry;
-
-    /* Begin processing */
-    spat_attach_shmem();
 
     dshash_seq_status status;
 
@@ -635,15 +611,10 @@ sp_db_nitems(PG_FUNCTION_ARGS)
 PG_FUNCTION_INFO_V1(sp_db_size_bytes);
 Datum sp_db_size_bytes(PG_FUNCTION_ARGS)
 {
-    Size result;
 
-    SpatDBEntry* entry;
-
-    /* Begin processing */
     spat_attach_shmem();
 
-    result = dsa_get_total_size(g_dsa);
-
+    Size result = dsa_get_total_size(g_dsa);
 
     PG_RETURN_INT64(result);
 }
