@@ -30,6 +30,7 @@
 #include "storage/dsm_registry.h"
 #include "storage/lwlock.h"
 #include "storage/shmem.h"
+#include "storage/ipc.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "lib/dshash.h"
@@ -189,12 +190,24 @@ spvalue_out(PG_FUNCTION_ARGS)
 
 /* ---------------------------------------- Global state ---------------------------------------- */
 
-static SpatDB* g_spat_db; /* Current (working) database */
+static SpatDB* g_spat_db = NULL; /* Current (working) database */
+static dsa_area* g_dsa = NULL;
+static dshash_table* g_htab = NULL;
+
 /* TODO: maybe *g_dsa here too? */
 
 /* ---------------------------------------- GUC Variables ---------------------------------------- */
 
 static char* g_guc_spat_db_name = NULL;
+
+void cleanup_dsa_on_exit(int code, Datum arg) {
+    if (g_dsa != NULL) {
+        dsa_detach(g_dsa);
+        g_dsa = NULL;
+    }
+}
+
+
 
 void _PG_init()
 {
@@ -207,6 +220,8 @@ void _PG_init()
                                NULL, NULL, NULL);
 
     MarkGUCPrefixReserved("spat");
+
+    on_proc_exit(cleanup_dsa_on_exit, (Datum) 0);
 }
 
 
@@ -253,6 +268,14 @@ spat_attach_shmem(void)
                                    spat_init_shmem,
                                    &found);
     LWLockRegisterTranche(g_spat_db->lck.tranche, g_guc_spat_db_name);
+
+    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+    g_dsa = dsa_attach(g_spat_db->dsa_handle);
+    LWLockRelease(&g_spat_db->lck);
+
+    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+    g_htab = dshash_attach(g_dsa, &default_hash_params, g_spat_db->htab_handle, NULL);
+    LWLockRelease(&g_spat_db->lck);
 }
 
 PG_FUNCTION_INFO_V1(spat_db_name);
@@ -268,21 +291,19 @@ spat_db_name(PG_FUNCTION_ARGS)
     spat_attach_shmem();
     LWLockAcquire(&g_spat_db->lck, LW_SHARED);
 
-    /* Get the DSA handle */
-    dsa_handle = g_spat_db->dsa_handle;
 
     LWLockRelease(&g_spat_db->lck);
 
     /* Attach to the DSA area */
-    dsa = dsa_attach(dsa_handle);
+    // dsa = dsa_attach(dsa_handle);
 
     /* Copy the message from shared memory */
-    memcpy(message, dsa_get_address(dsa, g_spat_db->name), NAMEDATALEN);
+    memcpy(message, dsa_get_address(g_dsa, g_spat_db->name), NAMEDATALEN);
 
     /* Ensure the message is null-terminated */
     message[NAMEDATALEN - 1] = '\0';
 
-    dsa_detach(dsa);
+    // dsa_detach(dsa);
     PG_RETURN_TEXT_P(cstring_to_text(message));
 }
 
@@ -418,12 +439,8 @@ spset_generic(PG_FUNCTION_ARGS)
     int16 valueTypLen;
 
     /* Processing */
-    dsa_handle dsa_handle;
     dsa_pointer dsa_key;
     dsa_pointer dsa_value;
-    dsa_area* dsa;
-    dshash_table_handle htab_handle;
-    dshash_table* htab;
     bool exclusive = false; /* TODO: This depends on the xx / nx */
     bool found;
     SpatDBEntry* entry;
@@ -449,45 +466,36 @@ spset_generic(PG_FUNCTION_ARGS)
 
     /* Begin processing */
     spat_attach_shmem();
-    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-    dsa_handle = g_spat_db->dsa_handle;
-    htab_handle = g_spat_db->htab_handle;
-    LWLockRelease(&g_spat_db->lck);
+
 
     /* in dsa territory now */
-    dsa = dsa_attach(dsa_handle);
-    htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
 
     /* Allocate dsa space for key and copy it from local memory to that dsa*/
-    dsa_key = dsa_allocate(dsa, VARSIZE_ANY(key));
+    dsa_key = dsa_allocate(g_dsa, VARSIZE_ANY(key));
     if (dsa_key == InvalidDsaPointer)
         elog(ERROR, "Could not allocate DSA memory for key=%s", text_to_cstring(key));
-    memcpy(dsa_get_address(dsa, dsa_key), key, VARSIZE_ANY(key));
+    memcpy(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key));
 
     /* Debug */
-    Assert(memcmp(dsa_get_address(dsa, dsa_key), key, VARSIZE_ANY(key)) == 0);
+    Assert(memcmp(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key)) == 0);
     elog(DEBUG1, "DSA allocated for key=%s", text_to_cstring(key));
     elog(DEBUG1, "Searching for key=%s", text_to_cstring(key));
 
     /* Insert the key */
-    entry = dshash_find_or_insert(htab, dsa_get_address(dsa, dsa_key), &found);
+    entry = dshash_find_or_insert(g_htab, dsa_get_address(g_dsa, dsa_key), &found);
     if (entry == NULL)
     {
-        dsa_free(dsa, dsa_key);
-        dsa_detach(dsa); // is this necessary?
+        dsa_free(g_dsa, dsa_key);
         elog(ERROR, "dshash_find_or_insert failed, probably out-of-memory");
     }
 
     /* The entry should be there, time to populate its value accordingly */
-    makeEntry(dsa, entry, ex, found, valueTypeOid, valueTypByVal, valueTypLen, value);
+    makeEntry(g_dsa, entry, ex, found, valueTypeOid, valueTypByVal, valueTypLen, value);
 
     /* Prepare the SPvalue to echo / return */
-    SPValue* result = makeSpvalFromEntry(dsa, entry);
+    SPValue* result = makeSpvalFromEntry(g_dsa, entry);
 
-    dshash_release_lock(htab, entry);
-
-    /* leaving dsa territory */
-    dsa_detach(dsa);
+    dshash_release_lock(g_htab, entry);
 
     PG_RETURN_POINTER(result);
 }
@@ -504,47 +512,32 @@ spget(PG_FUNCTION_ARGS)
     SPValue* result;
 
     /* Processing */
-    dsa_handle dsa_handle;
     dsa_pointer dsa_key;
-    dsa_pointer dsa_value;
-    dsa_area* dsa;
-    dshash_table_handle htab_handle;
-    dshash_table* htab;
     bool found;
     SpatDBEntry* entry;
 
     /* Begin processing */
     spat_attach_shmem();
-    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-    dsa_handle = g_spat_db->dsa_handle;
-    htab_handle = g_spat_db->htab_handle;
-    LWLockRelease(&g_spat_db->lck);
-
-    /* in dsa territory now */
-    dsa = dsa_attach(dsa_handle);
-    htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
 
     /* Allocate dsa space for key and copy it from local memory to that dsa*/
-    dsa_key = dsa_allocate(dsa, VARSIZE_ANY(key));
+    dsa_key = dsa_allocate(g_dsa, VARSIZE_ANY(key));
     if (dsa_key == InvalidDsaPointer)
         elog(ERROR, "Could not allocate DSA memory for key=%s", text_to_cstring(key));
-    memcpy(dsa_get_address(dsa, dsa_key), key, VARSIZE_ANY(key));
+    memcpy(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key));
 
-    Assert(memcmp(dsa_get_address(dsa, dsa_key), key, VARSIZE_ANY(key)) == 0);
+    Assert(memcmp(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key)) == 0);
 
     /* search for the key */
-    entry = dshash_find(htab, dsa_get_address(dsa, dsa_key), false);
+    entry = dshash_find(g_htab, dsa_get_address(g_dsa, dsa_key), false);
     if (entry == NULL)
         result = NULL;
 
     else
     {
-        result = makeSpvalFromEntry(dsa, entry);
-        dshash_release_lock(htab, entry);
+        result = makeSpvalFromEntry(g_dsa, entry);
+        dshash_release_lock(g_htab, entry);
     }
 
-    /* leaving dsa territory */
-    dsa_detach(dsa);
 
     if (!result)
         PG_RETURN_NULL();
@@ -561,34 +554,21 @@ del(PG_FUNCTION_ARGS)
     text* key = PG_GETARG_TEXT_PP(0);
 
     /* Processing */
-    dsa_handle dsa_handle;
     dsa_pointer dsa_key;
-    dsa_area* dsa;
-    dshash_table_handle htab_handle;
-    dshash_table* htab;
     bool found;
 
     /* Begin processing */
     spat_attach_shmem();
-    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-    dsa_handle = g_spat_db->dsa_handle;
-    htab_handle = g_spat_db->htab_handle;
-    LWLockRelease(&g_spat_db->lck);
 
-    /* in dsa territory now */
-    dsa = dsa_attach(dsa_handle);
-    htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
 
     /* Allocate dsa space for key and copy it from local memory to that dsa*/
-    dsa_key = dsa_allocate(dsa, VARSIZE_ANY(key));
+    dsa_key = dsa_allocate(g_dsa, VARSIZE_ANY(key));
     if (dsa_key == InvalidDsaPointer)
         elog(ERROR, "Could not allocate DSA memory for key=%s", text_to_cstring(key));
-    memcpy(dsa_get_address(dsa, dsa_key), key, VARSIZE_ANY(key));
+    memcpy(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key));
 
-    found = dshash_delete_key(htab, dsa_get_address(dsa, dsa_key));
+    found = dshash_delete_key(g_htab, dsa_get_address(g_dsa, dsa_key));
 
-    /* leaving dsa territory */
-    dsa_detach(dsa);
 
     PG_RETURN_BOOL(found);
 }
@@ -605,33 +585,22 @@ getexpireat(PG_FUNCTION_ARGS)
     TimestampTz result;
 
     /* Processing */
-    dsa_handle dsa_handle;
     dsa_pointer dsa_key;
-    dsa_area *dsa;
-    dshash_table_handle htab_handle;
-    dshash_table *htab;
+
     bool found;
     SpatDBEntry *entry;
 
     /* Attach shared memory and get handles */
     spat_attach_shmem();
-    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-    dsa_handle = g_spat_db->dsa_handle;
-    htab_handle = g_spat_db->htab_handle;
-    LWLockRelease(&g_spat_db->lck);
-
-    /* Attach DSA and hash table */
-    dsa = dsa_attach(dsa_handle);
-    htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
 
     /* Allocate DSA memory for the key */
-    dsa_key = dsa_allocate(dsa, VARSIZE_ANY(key));
+    dsa_key = dsa_allocate(g_dsa, VARSIZE_ANY(key));
     if (dsa_key == InvalidDsaPointer)
         elog(ERROR, "Could not allocate DSA memory for key=%s", text_to_cstring(key));
-    memcpy(dsa_get_address(dsa, dsa_key), key, VARSIZE_ANY(key));
+    memcpy(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key));
 
     /* Find the entry in the hash table */
-    entry = dshash_find(htab, dsa_get_address(dsa, dsa_key), false);
+    entry = dshash_find(g_htab, dsa_get_address(g_dsa, dsa_key), false);
     if (!entry)
     {
         found = false;
@@ -640,10 +609,9 @@ getexpireat(PG_FUNCTION_ARGS)
     {
         found = true;
         result = entry->expireat;
-        dshash_release_lock(htab, entry);
+        dshash_release_lock(g_htab, entry);
     }
-    /* Detach DSA */
-    dsa_detach(dsa);
+
 
     /* Return the result */
     if (!found || result == SpMaxTTL)
@@ -660,35 +628,20 @@ sp_db_nitems(PG_FUNCTION_ARGS)
     int32 nitems = 0;
 
     /* Processing */
-    dsa_handle dsa_handle;
-    dsa_area* dsa;
-    dshash_table_handle htab_handle;
-    dshash_table* htab;
     SpatDBEntry* entry;
 
     /* Begin processing */
     spat_attach_shmem();
-    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-    dsa_handle = g_spat_db->dsa_handle;
-    htab_handle = g_spat_db->htab_handle;
-    LWLockRelease(&g_spat_db->lck);
-
-    /* in dsa territory now */
-    dsa = dsa_attach(dsa_handle);
-    htab = dshash_attach(dsa, &default_hash_params, htab_handle, NULL);
 
     dshash_seq_status status;
 
     /* Initialize a sequential scan (non-exclusive lock assumed here). */
-    dshash_seq_init(&status, htab, false);
+    dshash_seq_init(&status, g_htab, false);
 
     while ((entry = dshash_seq_next(&status)) != NULL)
         nitems++;
 
     dshash_seq_term(&status);
-
-    /* leaving dsa territory */
-    dsa_detach(dsa);
 
     PG_RETURN_INT32(nitems);
 }
@@ -698,25 +651,13 @@ Datum sp_db_size_bytes(PG_FUNCTION_ARGS)
 {
     Size result;
 
-    /* Processing */
-    dsa_handle dsa_handle;
-    dsa_area* dsa;
-    dshash_table_handle htab_handle;
-    dshash_table* htab;
     SpatDBEntry* entry;
 
     /* Begin processing */
     spat_attach_shmem();
-    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
-    dsa_handle = g_spat_db->dsa_handle;
-    htab_handle = g_spat_db->htab_handle;
-    LWLockRelease(&g_spat_db->lck);
 
-    /* in dsa territory now */
-    dsa = dsa_attach(dsa_handle);
-    result = dsa_get_total_size(dsa);
-    /* leaving dsa territory */
-    dsa_detach(dsa);
+    result = dsa_get_total_size(g_dsa);
+
 
     PG_RETURN_INT64(result);
 }
