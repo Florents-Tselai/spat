@@ -165,3 +165,16 @@ SELECT sptype('gsdgdf');
  null
 (1 row)
 
+-- SETS
+SELECT SADD('set1', 'elem1');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SPTYPE('set1');
+ sptype 
+--------
+ set
+(1 row)
+

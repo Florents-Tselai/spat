@@ -64,3 +64,6 @@ CREATE FUNCTION del(text) RETURNS bool AS 'MODULE_PATHNAME' LANGUAGE C;
 
 CREATE FUNCTION getexpireat(text) RETURNS timestamptz AS 'MODULE_PATHNAME' LANGUAGE C;
 CREATE FUNCTION ttl(text) RETURNS INTERVAL AS 'select getexpireat($1) - now()' LANGUAGE SQL;
+
+/* -------------------- SETS -------------------- */
+CREATE FUNCTION sadd(text, text) RETURNS VOID AS 'MODULE_PATHNAME' LANGUAGE C;

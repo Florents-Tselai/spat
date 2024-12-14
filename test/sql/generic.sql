@@ -48,3 +48,9 @@ SELECT spset('key1', 'value1');
 SELECT sptype('key1');
 
 SELECT sptype('gsdgdf');
+
+-- SETS
+SELECT SADD('set1', 'elem1');
+SELECT SPTYPE('set1');
+
+

@@ -71,7 +71,8 @@ typedef enum valueType
 {
     SPVAL_INVALID,
     SPVAL_NULL, /* not in DB */
-    SPVAL_STRING
+    SPVAL_STRING,
+    SPVAL_SET
 } valueType;
 
 static const char* typename(valueType t) {
@@ -82,6 +83,8 @@ static const char* typename(valueType t) {
             return "invalid";
         case SPVAL_NULL:
             return "null";
+        case SPVAL_SET:
+            return "set";
     }
 }
 
@@ -120,6 +123,10 @@ typedef struct SpatDBEntry
             Size valsz;
             dsa_pointer valptr;
         } ref;
+
+        struct {
+            dshash_table_handle  hshsethndl;
+        } set;
     } value;
 } SpatDBEntry;
 
@@ -281,11 +288,18 @@ spvalue_out(PG_FUNCTION_ARGS)
     /* Convert spval back to a string based on its type */
     switch (input->valtyp)
     {
-    case SPVAL_STRING:
-        appendStringInfoString(&output, text_to_cstring(input->value.varlena_val));
-        break;
-    default:
-        elog(ERROR, "Unknown spval type");
+        case SPVAL_STRING:
+            appendStringInfoString(&output, text_to_cstring(input->value.varlena_val));
+            break;
+        case SPVAL_INVALID:
+            appendStringInfoString(&output, "invalid");
+            break;
+        case SPVAL_NULL:
+            appendStringInfoString(&output, "null");
+            break;
+        case SPVAL_SET:
+            appendStringInfoString(&output, "set {}");
+            break;
     }
 
     PG_RETURN_CSTRING(output.data);
@@ -459,7 +473,6 @@ sptype(PG_FUNCTION_ARGS)
     if (entry) {
         result = entry->valtyp;
         dshash_release_lock(g_htab, entry);
-        Assert(result == SPVAL_STRING);
     }
 
     spat_detach_shmem();
@@ -550,4 +563,76 @@ Datum sp_db_size_bytes(PG_FUNCTION_ARGS)
     result = dsa_get_total_size(g_dsa);
     spat_detach_shmem();
     PG_RETURN_INT64(result);
+}
+
+
+/* ---------------------------------------- SETS ---------------------------------------- */
+
+typedef struct set_element {
+    dsa_pointer elemkey;
+    int score;
+} set_element;
+
+static const dshash_parameters default_set_hash_params = {
+        .key_size = sizeof(dsa_pointer),
+        .entry_size = sizeof(set_element),
+        .compare_function = dshash_memcmp,
+        .hash_function = dshash_memhash,
+        .copy_function = dshash_memcpy
+};
+
+PG_FUNCTION_INFO_V1(sadd);
+
+Datum
+sadd(PG_FUNCTION_ARGS)
+{
+    spat_attach_shmem();
+    int result = 0;
+    text *key = PG_GETARG_TEXT_PP(0);
+    Size keysz = VARSIZE_ANY(key);
+    dsa_pointer dsa_key = dsa_copy_to(g_dsa, key, keysz);
+
+    text *value = PG_GETARG_TEXT_PP(1);
+    Size valsz = VARSIZE_ANY(value);
+    dsa_pointer dsa_value = dsa_copy_to(g_dsa, value, valsz);
+
+    bool keyfound;
+
+    dshash_table *setinternalhtable = NULL;
+    bool setelementfound;
+
+    /* Insert the key */
+    SpatDBEntry *topdbentry = dshash_find_or_insert(g_htab, dsa_get_address(g_dsa, dsa_key), &keyfound);
+    if (topdbentry == NULL)
+    {
+        dsa_free(g_dsa, dsa_key);
+        elog(ERROR, "dshash_find_or_insert failed, probably out-of-memory");
+    }
+
+    if (!keyfound) {
+        elog(DEBUG1, "set: new key=%s", text_to_cstring(key));
+
+        /* init attach and record the internal hashtable for the set */
+        setinternalhtable = dshash_create(g_dsa, &default_set_hash_params, NULL);
+
+        topdbentry->valtyp = SPVAL_SET;
+        topdbentry->expireat = SpMaxTTL;
+        topdbentry->value.set.hshsethndl = dshash_get_hash_table_handle(setinternalhtable);
+
+        dshash_release_lock(g_htab, topdbentry);
+
+        elog(DEBUG1, "set: key=%s, internalhtab=%llu", text_to_cstring(key), topdbentry->value.set.hshsethndl);
+    }
+
+
+    set_element *setelem = dshash_find_or_insert(setinternalhtable, dsa_get_address(g_dsa, dsa_value), &setelementfound);
+    elog(DEBUG1, "set: key=%s, value=%s, setelementfound=%d", text_to_cstring(key), text_to_cstring(value), setelementfound);
+
+    dshash_release_lock(setinternalhtable, setelem);
+
+    dshash_detach(setinternalhtable);
+
+    spat_detach_shmem();
+
+    PG_RETURN_VOID();
 }
