@@ -54,7 +54,7 @@ CREATE FUNCTION spget(text) RETURNS spvalue AS 'MODULE_PATHNAME' LANGUAGE C PARA
 
 /* -------------------- SPTYPE -------------------- */
 
-CREATE FUNCTION sptype(text) RETURNS text AS 'MODULE_PATHNAME' LANGUAGE SQL;
+CREATE FUNCTION sptype(text) RETURNS text AS 'MODULE_PATHNAME' LANGUAGE C PARALLEL SAFE;
 
 /* -------------------- DEL -------------------- */
 

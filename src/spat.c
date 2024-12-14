@@ -69,20 +69,23 @@ PG_MODULE_MAGIC;
 
 typedef enum valueType
 {
-    SPVAL_INVALID = -1,
-    SPVAL_NULL = 0,
-    SPVAL_INTEGER = 1,
-    SPVAL_STRING = 2
+    SPVAL_STRING = 1,
 } valueType;
+
+static const char* typename(valueType t) {
+    switch (t) {
+        case SPVAL_STRING:
+            return "string";
+    }
+}
 
 /* In-memory representation of an SPValue */
 typedef struct SPValue
 {
-    valueType type;
+    valueType valtyp;
 
     union
     {
-        int32 integer;
         struct varlena* varlena_val;
     } value;
 } SPValue;
@@ -102,11 +105,10 @@ typedef struct SpatDBEntry
 
     /* -------------------- Value -------------------- */
 
-    Oid valtypid;
+    valueType valtyp;
 
     union
     {
-        Datum val;
         struct
         {
             Size valsz;
@@ -263,22 +265,7 @@ spvalue_in(PG_FUNCTION_ARGS)
     /* Allocate memory for the spval struct */
     result = (SPValue*)palloc(sizeof(SPValue));
 
-    /* Try parsing as an integer using int4in */
-    PG_TRY();
-        {
-            result->value.integer = DatumGetInt32(DirectFunctionCall1(int4in, CStringGetDatum(input)));
-            result->type = SPVAL_INTEGER;
-            PG_RETURN_POINTER(result);
-        }
-    PG_CATCH();
-        {
-            /* Clear error and proceed to try other types */
-            FlushErrorState();
-        }
-    PG_END_TRY();
-
-    /* Default to varlena type (e.g., text) */
-    result->type = SPVAL_STRING;
+    result->valtyp = SPVAL_STRING;
     result->value.varlena_val = cstring_to_text(input);
 
     PG_RETURN_POINTER(result);
@@ -296,11 +283,8 @@ spvalue_out(PG_FUNCTION_ARGS)
     initStringInfo(&output);
 
     /* Convert spval back to a string based on its type */
-    switch (input->type)
+    switch (input->valtyp)
     {
-    case SPVAL_INTEGER:
-        appendStringInfo(&output, "%d", input->value.integer);
-        break;
     case SPVAL_STRING:
         appendStringInfoString(&output, text_to_cstring(input->value.varlena_val));
         break;
@@ -348,15 +332,6 @@ spat_db_created_at(PG_FUNCTION_ARGS)
 void makeEntry(dsa_area* dsa, SpatDBEntry* entry, Interval* ex, bool found, Oid valueTypeOid, bool valueTypByVal, int16 valueTypLen,
                Datum value)
 {
-    /* Set the defaults */
-    entry->expireat = SpMaxTTL; /* by-default should live forever */
-    entry->valtypid = InvalidOid;
-
-    entry->value.val = SpInvalidValDatum;
-
-    entry->value.ref.valsz = SpInvalidValSize;
-    entry->value.ref.valptr = InvalidDsaPointer;
-
     /* Begin by setting the metadata */
     if (ex)
     {
@@ -369,11 +344,12 @@ void makeEntry(dsa_area* dsa, SpatDBEntry* entry, Interval* ex, bool found, Oid 
 
     if (valueTypByVal)
     {
-        entry->valtypid = valueTypeOid;
-        entry->value.val = value;
+        elog(ERROR, "pass-by value types are not currently supported");
     }
     else if (valueTypLen == -1)
     {
+        Assert(valueTypeOid == TEXTOID);
+
         /* It is a varlena datatype */
         struct varlena* vl = (struct varlena*)DatumGetPointer(value);
         if (VARATT_IS_EXTERNAL_EXPANDED(vl))
@@ -386,7 +362,7 @@ void makeEntry(dsa_area* dsa, SpatDBEntry* entry, Interval* ex, bool found, Oid 
         {
             /* Otherwise, just copy the varlena datum verbatim */
             Size realSize = (Size) VARSIZE_ANY(value);
-            entry->valtypid = valueTypeOid;
+            entry->valtyp =  SPVAL_STRING;
             entry->value.ref.valsz = realSize;
             entry->value.ref.valptr = dsa_allocate(dsa, realSize);
 
@@ -406,31 +382,19 @@ SPValue* makeSpvalFromEntry(dsa_area* dsa, SpatDBEntry* entry)
 {
     SPValue* result;
 
-    Assert(entry->valtypid == TEXTOID || entry->valtypid == JSONBOID || entry->valtypid == INT4OID);
+    Assert(entry->valtyp == SPVAL_STRING);
 
-    if (entry->valtypid == TEXTOID)
-    {
-        Assert(entry->valtypid == TEXTOID);
-        result = (SPValue*)palloc(sizeof(SPValue));
+    result = (SPValue*)palloc(sizeof(SPValue));
 
-        Size realSize = entry->value.ref.valsz;
+    Size realSize = entry->value.ref.valsz;
 
-        text* text_result = (text*)palloc(realSize);
-        SET_VARSIZE(text_result, realSize);
+    text* text_result = (text*)palloc(realSize);
+    SET_VARSIZE(text_result, realSize);
 
-        memcpy(text_result, dsa_get_address(dsa, entry->value.ref.valptr), realSize);
+    memcpy(text_result, dsa_get_address(dsa, entry->value.ref.valptr), realSize);
 
-        result->type = SPVAL_STRING;
-        result->value.varlena_val = text_result;
-    }
-
-
-    if (entry->valtypid == INT4OID)
-    {
-        result = (SPValue*)palloc(sizeof(SPValue));
-        result->type = SPVAL_INTEGER;
-        result->value.integer = DatumGetInt32(entry->value.val);
-    }
+    result->valtyp = SPVAL_STRING;
+    result->value.varlena_val = text_result;
 
     return result;
 }
@@ -511,27 +475,17 @@ spset_generic(PG_FUNCTION_ARGS)
     PG_RETURN_POINTER(result);
 }
 
-PG_FUNCTION_INFO_V1(spget);
 
-Datum
-spget(PG_FUNCTION_ARGS)
-{
-    /* Begin processing */
-    spat_attach_shmem();
-
-    /* Input */
-    text* key = PG_GETARG_TEXT_PP(0);
-    Size keysz = VARSIZE_ANY(key);
-
+SpatDBEntry * spget_internal(text *key, Size keysz) {
     /* Output */
-    SPValue* result;
+    SPValue* result = NULL;
 
     /* Processing */
     dsa_pointer dsa_key;
     bool found;
     SpatDBEntry* entry;
 
-   dsa_key = dsa_copy_to(g_dsa, key, keysz);
+    dsa_key = dsa_copy_to(g_dsa, key, keysz);
 
     Assert(memcmp(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key)) == 0);
 
@@ -546,12 +500,54 @@ spget(PG_FUNCTION_ARGS)
         dshash_release_lock(g_htab, entry);
     }
 
+    return result;
+}
+
+PG_FUNCTION_INFO_V1(spget);
+
+Datum
+spget(PG_FUNCTION_ARGS)
+{
+    /* Begin processing */
+    spat_attach_shmem();
+
+    /* Input */
+    text* key = PG_GETARG_TEXT_PP(0);
+    Size keysz = VARSIZE_ANY(key);
+
+    SpatDBEntry *result = spget_internal(key, keysz);
+
     spat_detach_shmem();
 
     if (!result)
         PG_RETURN_NULL();
     else
         PG_RETURN_POINTER(result);
+}
+
+PG_FUNCTION_INFO_V1(sptype);
+
+Datum
+sptype(PG_FUNCTION_ARGS)
+{
+    /* Begin processing */
+    spat_attach_shmem();
+
+    /* Input */
+    text* key = PG_GETARG_TEXT_PP(0);
+    Size keysz = VARSIZE_ANY(key);
+
+    SpatDBEntry *result = spget_internal(key, keysz);
+
+    spat_detach_shmem();
+
+    if (result == NULL)
+        PG_RETURN_NULL();
+    else {
+        Assert(result->valtyp);
+        PG_RETURN_TEXT_P(cstring_to_text(typename(result->valtyp)));
+    }
+
 }
 
 PG_FUNCTION_INFO_V1(del);
