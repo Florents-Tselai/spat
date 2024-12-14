@@ -52,5 +52,6 @@ SELECT sptype('gsdgdf');
 -- SETS
 SELECT SADD('set1', 'elem1');
 SELECT SPTYPE('set1');
-
-
+SELECT SADD('set1', 'sdgdf');
+SELECT SADD('set1', 'sdgdf');
+SELECT SPTYPE('set1');

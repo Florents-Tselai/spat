@@ -587,52 +587,69 @@ Datum
 sadd(PG_FUNCTION_ARGS)
 {
     spat_attach_shmem();
-    int result = 0;
     text *key = PG_GETARG_TEXT_PP(0);
-    Size keysz = VARSIZE_ANY(key);
-    dsa_pointer dsa_key = dsa_copy_to(g_dsa, key, keysz);
-
     text *value = PG_GETARG_TEXT_PP(1);
-    Size valsz = VARSIZE_ANY(value);
-    dsa_pointer dsa_value = dsa_copy_to(g_dsa, value, valsz);
+    dsa_pointer dsa_key = InvalidDsaPointer;
+    dsa_pointer dsa_value = InvalidDsaPointer;
+    bool keyfound = false;
 
-    bool keyfound;
-
-    dshash_table *setinternalhtable = NULL;
-    bool setelementfound;
-
-    /* Insert the key */
-    SpatDBEntry *topdbentry = dshash_find_or_insert(g_htab, dsa_get_address(g_dsa, dsa_key), &keyfound);
-    if (topdbentry == NULL)
+    PG_TRY();
     {
-        dsa_free(g_dsa, dsa_key);
-        elog(ERROR, "dshash_find_or_insert failed, probably out-of-memory");
-    }
+        /* Copy key and value to shared memory */
+        dsa_key = dsa_copy_to(g_dsa, key, VARSIZE_ANY(key));
+        dsa_value = dsa_copy_to(g_dsa, value, VARSIZE_ANY(value));
 
-    if (!keyfound) {
-        elog(DEBUG1, "set: new key=%s", text_to_cstring(key));
+        if (dsa_key == InvalidDsaPointer || dsa_value == InvalidDsaPointer)
+            elog(ERROR, "Failed to copy key or value into shared memory");
 
-        /* init attach and record the internal hashtable for the set */
-        setinternalhtable = dshash_create(g_dsa, &default_set_hash_params, NULL);
+        /* Insert the key into the top-level hash table */
+        SpatDBEntry *topdbentry = dshash_find_or_insert(g_htab, dsa_get_address(g_dsa, dsa_key), &keyfound);
+        if (topdbentry == NULL)
+        {
+            elog(ERROR, "dshash_find_or_insert failed, possibly out of memory");
+        }
 
-        topdbentry->valtyp = SPVAL_SET;
-        topdbentry->expireat = SpMaxTTL;
-        topdbentry->value.set.hshsethndl = dshash_get_hash_table_handle(setinternalhtable);
+        if (!keyfound)
+        {
+            /* New set: Initialize and attach an internal hash table */
+            elog(DEBUG1, "set: new key=%s", text_to_cstring(key));
+            dshash_table *setinternalhtable = dshash_create(g_dsa, &default_set_hash_params, NULL);
+
+            topdbentry->valtyp = SPVAL_SET;
+            topdbentry->expireat = SpMaxTTL;
+            topdbentry->value.set.hshsethndl = dshash_get_hash_table_handle(setinternalhtable);
+
+            /* Insert value into the new hash table */
+            bool setelementfound = false;
+            set_element *setelem = dshash_find_or_insert(setinternalhtable, dsa_get_address(g_dsa, dsa_value), &setelementfound);
+            elog(DEBUG1, "set: new set=%s, value=%s, setelementfound=%d", text_to_cstring(key), text_to_cstring(value), setelementfound);
+
+            dshash_release_lock(setinternalhtable, setelem);
+            dshash_detach(setinternalhtable);
+        }
+        else
+        {
+            /* Existing set: Attach and insert the value */
+            dshash_table *setinternalhtable = dshash_attach(g_dsa, &default_set_hash_params, topdbentry->value.set.hshsethndl, NULL);
+            bool setelementfound = false;
+            set_element *setelem = dshash_find_or_insert(setinternalhtable, dsa_get_address(g_dsa, dsa_value), &setelementfound);
+            elog(DEBUG1, "set: existing set=%s, value=%s, setelementfound=%d", text_to_cstring(key), text_to_cstring(value), setelementfound);
+
+            dshash_release_lock(setinternalhtable, setelem);
+            dshash_detach(setinternalhtable);
+        }
 
         dshash_release_lock(g_htab, topdbentry);
-
-        elog(DEBUG1, "set: key=%s, internalhtab=%llu", text_to_cstring(key), topdbentry->value.set.hshsethndl);
     }
-
-
-    set_element *setelem = dshash_find_or_insert(setinternalhtable, dsa_get_address(g_dsa, dsa_value), &setelementfound);
-    elog(DEBUG1, "set: key=%s, value=%s, setelementfound=%d", text_to_cstring(key), text_to_cstring(value), setelementfound);
-
-    dshash_release_lock(setinternalhtable, setelem);
-
-    dshash_detach(setinternalhtable);
+    PG_CATCH();
+    {
+        /* Cleanup resources */
+        if (dsa_key != InvalidDsaPointer) dsa_free(g_dsa, dsa_key);
+        if (dsa_value != InvalidDsaPointer) dsa_free(g_dsa, dsa_value);
+        PG_RE_THROW();
+    }
+    PG_END_TRY();
 
     spat_detach_shmem();
-
     PG_RETURN_VOID();
 }

@@ -178,3 +178,21 @@ SELECT SPTYPE('set1');
  set
 (1 row)
 
+SELECT SADD('set1', 'sdgdf');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SADD('set1', 'sdgdf');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SPTYPE('set1');
+ sptype 
+--------
+ set
+(1 row)
+
