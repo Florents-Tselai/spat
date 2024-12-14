@@ -69,13 +69,19 @@ PG_MODULE_MAGIC;
 
 typedef enum valueType
 {
-    SPVAL_STRING = 1,
+    SPVAL_INVALID,
+    SPVAL_NULL, /* not in DB */
+    SPVAL_STRING
 } valueType;
 
 static const char* typename(valueType t) {
     switch (t) {
         case SPVAL_STRING:
             return "string";
+        case SPVAL_INVALID:
+            return "invalid";
+        case SPVAL_NULL:
+            return "null";
     }
 }
 
@@ -258,17 +264,7 @@ PG_FUNCTION_INFO_V1(spvalue_in);
 Datum
 spvalue_in(PG_FUNCTION_ARGS)
 {
-    elog(ERROR, "spval_in shouldn't be called");
-    char* input = PG_GETARG_CSTRING(0);
-    SPValue* result;
-
-    /* Allocate memory for the spval struct */
-    result = (SPValue*)palloc(sizeof(SPValue));
-
-    result->valtyp = SPVAL_STRING;
-    result->value.varlena_val = cstring_to_text(input);
-
-    PG_RETURN_POINTER(result);
+    elog(ERROR, "spvalue_in shouldn't be called");
 }
 
 PG_FUNCTION_INFO_V1(spvalue_out);
@@ -321,61 +317,6 @@ spat_db_created_at(PG_FUNCTION_ARGS)
 
     spat_detach_shmem();
     PG_RETURN_TIMESTAMPTZ(result);
-}
-
-/*
- * Builds an appropriate in the dsa, given a value Datum.
- * The key should have alerady been allocated and copied (e.g. by hash_find_or_insert).
- * Here we basically copy the value like datumCopy does (see src/backend/utils/adt/datum.c)
- * How we do that depends on the type of the value, and its size.
- */
-void makeEntry(dsa_area* dsa, SpatDBEntry* entry, Interval* ex, bool found, Oid valueTypeOid, bool valueTypByVal, int16 valueTypLen,
-               Datum value)
-{
-    /* Begin by setting the metadata */
-    if (ex)
-    {
-        /* if ttl interval is given */
-        entry->expireat = DatumGetTimestampTz(DirectFunctionCall2(
-            timestamptz_pl_interval,
-            TimestampTzGetDatum(GetCurrentTimestamp()),
-            PointerGetDatum(ex)));
-    }
-
-    if (valueTypByVal)
-    {
-        elog(ERROR, "pass-by value types are not currently supported");
-    }
-    else if (valueTypLen == -1)
-    {
-        Assert(valueTypeOid == TEXTOID);
-
-        /* It is a varlena datatype */
-        struct varlena* vl = (struct varlena*)DatumGetPointer(value);
-        if (VARATT_IS_EXTERNAL_EXPANDED(vl))
-        {
-            /* Flatten into the caller's memory context */
-            elog(ERROR, "expanded value types are not currently supported");
-
-        }
-        else
-        {
-            /* Otherwise, just copy the varlena datum verbatim */
-            Size realSize = (Size) VARSIZE_ANY(value);
-            entry->valtyp =  SPVAL_STRING;
-            entry->value.ref.valsz = realSize;
-            entry->value.ref.valptr = dsa_allocate(dsa, realSize);
-
-            memcpy(dsa_get_address(dsa, entry->value.ref.valptr), DatumGetPointer(value), realSize);
-
-        }
-    }
-    else
-    {
-        /* Pass by reference, but not varlena, so not toasted */
-        elog(ERROR, "Pass by reference, but not varlena value types are not currently supported");
-
-    }
 }
 
 SPValue* makeSpvalFromEntry(dsa_area* dsa, SpatDBEntry* entry)
@@ -437,22 +378,7 @@ spset_generic(PG_FUNCTION_ARGS)
     /* Get value type info. We need this for the copying part */
     valueTypeOid = get_fn_expr_argtype(fcinfo->flinfo, 1);
 
-    if (!OidIsValid(valueTypeOid))
-        elog(ERROR, "Cannot determine type of value");
-
-    get_typlenbyval(valueTypeOid, &valueTypLen, &valueTypByVal);
-    elog(DEBUG1, "Value Type OID: %u, typByVal: %s, typLen: %d", valueTypeOid, valueTypByVal, valueTypLen);
-
-    if (!(valueTypeOid == TEXTOID || valueTypeOid == INT4OID || valueTypeOid == JSONBOID))
-        elog(ERROR, "Unsupported value type oid=%d", valueTypeOid);
-
-    /* Begin processing */
-
-
-    /* Debug */
-    Assert(memcmp(DSA_POINTER_TO_LOCAL(dsa_key), key, VARSIZE_ANY(key)) == 0);
-    elog(DEBUG1, "DSA allocated for key=%s", text_to_cstring(key));
-    elog(DEBUG1, "Searching for key=%s", text_to_cstring(key));
+    Assert(valueTypeOid == TEXTOID);
 
     /* Insert the key */
     entry = dshash_find_or_insert(g_htab, dsa_get_address(g_dsa, dsa_key), &found);
@@ -462,8 +388,19 @@ spset_generic(PG_FUNCTION_ARGS)
         elog(ERROR, "dshash_find_or_insert failed, probably out-of-memory");
     }
 
-    /* The entry should be there, time to populate its value accordingly */
-    makeEntry(g_dsa, entry, ex, found, valueTypeOid, valueTypByVal, valueTypLen, value);
+    if (ex)
+    {
+        /* if ttl interval is given */
+        entry->expireat = DatumGetTimestampTz(DirectFunctionCall2(
+                timestamptz_pl_interval,
+                TimestampTzGetDatum(GetCurrentTimestamp()),
+                PointerGetDatum(ex)));
+    }
+
+    entry->valtyp = SPVAL_STRING;
+    entry->value.ref.valsz = VARSIZE_ANY(value);
+    entry->value.ref.valptr = dsa_allocate(g_dsa, VARSIZE_ANY(value));
+    memcpy(dsa_get_address(g_dsa, entry->value.ref.valptr), DatumGetPointer(value), VARSIZE_ANY(value));
 
     /* Prepare the SPvalue to echo / return */
     SPValue* result = makeSpvalFromEntry(g_dsa, entry);
@@ -475,54 +412,34 @@ spset_generic(PG_FUNCTION_ARGS)
     PG_RETURN_POINTER(result);
 }
 
-
-SpatDBEntry * spget_internal(text *key, Size keysz) {
-    /* Output */
-    SPValue* result = NULL;
-
-    /* Processing */
-    dsa_pointer dsa_key;
-    bool found;
-    SpatDBEntry* entry;
-
-    dsa_key = dsa_copy_to(g_dsa, key, keysz);
-
-    Assert(memcmp(dsa_get_address(g_dsa, dsa_key), key, VARSIZE_ANY(key)) == 0);
-
-    /* search for the key */
-    entry = dshash_find(g_htab, dsa_get_address(g_dsa, dsa_key), false);
-    if (entry == NULL)
-        result = NULL;
-
-    else
-    {
-        result = makeSpvalFromEntry(g_dsa, entry);
-        dshash_release_lock(g_htab, entry);
-    }
-
-    return result;
-}
-
 PG_FUNCTION_INFO_V1(spget);
 
 Datum
 spget(PG_FUNCTION_ARGS)
 {
+    bool found = false;
+    SPValue *result;
+
     /* Begin processing */
     spat_attach_shmem();
-
-    /* Input */
     text* key = PG_GETARG_TEXT_PP(0);
     Size keysz = VARSIZE_ANY(key);
+    dsa_pointer dsa_key= dsa_copy_to(g_dsa, key, keysz);
 
-    SpatDBEntry *result = spget_internal(key, keysz);
+    SpatDBEntry *entry = dshash_find(g_htab, dsa_get_address(g_dsa, dsa_key), false);
+    if (entry) {
+        found = true;
+        result = makeSpvalFromEntry(g_dsa, entry);
+        dshash_release_lock(g_htab, entry);
+    }
 
     spat_detach_shmem();
 
-    if (!result)
+    if (!found) {
         PG_RETURN_NULL();
-    else
-        PG_RETURN_POINTER(result);
+    }
+
+    PG_RETURN_POINTER(result);
 }
 
 PG_FUNCTION_INFO_V1(sptype);
@@ -530,23 +447,24 @@ PG_FUNCTION_INFO_V1(sptype);
 Datum
 sptype(PG_FUNCTION_ARGS)
 {
+    valueType result = SPVAL_NULL;
+
     /* Begin processing */
     spat_attach_shmem();
-
-    /* Input */
     text* key = PG_GETARG_TEXT_PP(0);
     Size keysz = VARSIZE_ANY(key);
+    dsa_pointer dsa_key= dsa_copy_to(g_dsa, key, keysz);
 
-    SpatDBEntry *result = spget_internal(key, keysz);
+    SpatDBEntry *entry = dshash_find(g_htab, dsa_get_address(g_dsa, dsa_key), false);
+    if (entry) {
+        result = entry->valtyp;
+        dshash_release_lock(g_htab, entry);
+        Assert(result == SPVAL_STRING);
+    }
 
     spat_detach_shmem();
 
-    if (result == NULL)
-        PG_RETURN_NULL();
-    else {
-        Assert(result->valtyp);
-        PG_RETURN_TEXT_P(cstring_to_text(typename(result->valtyp)));
-    }
+    PG_RETURN_TEXT_P(cstring_to_text(typename(result)));
 
 }
 
