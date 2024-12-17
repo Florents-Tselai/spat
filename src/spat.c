@@ -41,6 +41,7 @@
 #include "utils/timestamp.h"
 #include "utils/datum.h"
 #include "utils/jsonb.h"
+#include "common/hashfn.h"
 
 
 PG_MODULE_MAGIC;
@@ -126,6 +127,7 @@ typedef struct SpatDBEntry
 
         struct {
             dshash_table_handle  hshsethndl;
+            uint32 card;
         } set;
     } value;
 } SpatDBEntry;
@@ -472,6 +474,7 @@ sptype(PG_FUNCTION_ARGS)
     SpatDBEntry *entry = dshash_find(g_htab, dsa_get_address(g_dsa, dsa_key), false);
     if (entry) {
         result = entry->valtyp;
+        elog(DEBUG1, "valtyp=%d", entry->valtyp);
         dshash_release_lock(g_htab, entry);
     }
 
@@ -569,87 +572,98 @@ Datum sp_db_size_bytes(PG_FUNCTION_ARGS)
 /* ---------------------------------------- SETS ---------------------------------------- */
 
 typedef struct set_element {
-    dsa_pointer elemkey;
-    int score;
+    char key[64];
 } set_element;
 
-static const dshash_parameters default_set_hash_params = {
-        .key_size = sizeof(dsa_pointer),
+static const dshash_parameters params_hashset = {
+        .key_size = 64, /* Fixed size for keys */
         .entry_size = sizeof(set_element),
-        .compare_function = dshash_memcmp,
-        .hash_function = dshash_memhash,
-        .copy_function = dshash_memcpy
+        .compare_function = dshash_strcmp,
+        .hash_function = dshash_strhash,
+        .copy_function = dshash_strcpy
 };
 
 PG_FUNCTION_INFO_V1(sadd);
-
 Datum
 sadd(PG_FUNCTION_ARGS)
 {
     spat_attach_shmem();
     text *key = PG_GETARG_TEXT_PP(0);
-    text *value = PG_GETARG_TEXT_PP(1);
-    dsa_pointer dsa_key = InvalidDsaPointer;
-    dsa_pointer dsa_value = InvalidDsaPointer;
-    bool keyfound = false;
+    Size keysz = VARSIZE_ANY(key);
+    dsa_pointer dsa_key = dsa_copy_to(g_dsa, key, keysz);
+    char *elemstr = text_to_cstring(PG_GETARG_TEXT_PP(1));
 
-    PG_TRY();
-    {
-        /* Copy key and value to shared memory */
-        dsa_key = dsa_copy_to(g_dsa, key, VARSIZE_ANY(key));
-        dsa_value = dsa_copy_to(g_dsa, value, VARSIZE_ANY(value));
+    /* Insert/find the set in the global hash table */
+    bool dbentryfound;
+    dshash_table *htab;
+    dshash_table_handle htabhandl;
 
-        if (dsa_key == InvalidDsaPointer || dsa_value == InvalidDsaPointer)
-            elog(ERROR, "Failed to copy key or value into shared memory");
+    SpatDBEntry *dbentry = dshash_find_or_insert(g_htab, DSA_POINTER_TO_LOCAL(dsa_key), &dbentryfound);
 
-        /* Insert the key into the top-level hash table */
-        SpatDBEntry *topdbentry = dshash_find_or_insert(g_htab, dsa_get_address(g_dsa, dsa_key), &keyfound);
-        if (topdbentry == NULL)
-        {
-            elog(ERROR, "dshash_find_or_insert failed, possibly out of memory");
-        }
+    if (!dbentryfound) {
+        dbentry->valtyp = SPVAL_SET;
+        htab = dshash_create(g_dsa, &params_hashset, NULL);
+        htabhandl = dshash_get_hash_table_handle(htab);
+        dbentry->value.set.hshsethndl = htabhandl;
+        dbentry->value.set.card = 0;
+    } else {
+        /* Existing entry */
+        Assert(dbentry->valtyp == SPVAL_SET);
+        htabhandl = dbentry->value.set.hshsethndl;
 
-        if (!keyfound)
-        {
-            /* New set: Initialize and attach an internal hash table */
-            elog(DEBUG1, "set: new key=%s", text_to_cstring(key));
-            dshash_table *setinternalhtable = dshash_create(g_dsa, &default_set_hash_params, NULL);
-
-            topdbentry->valtyp = SPVAL_SET;
-            topdbentry->expireat = SpMaxTTL;
-            topdbentry->value.set.hshsethndl = dshash_get_hash_table_handle(setinternalhtable);
-
-            /* Insert value into the new hash table */
-            bool setelementfound = false;
-            set_element *setelem = dshash_find_or_insert(setinternalhtable, dsa_get_address(g_dsa, dsa_value), &setelementfound);
-            elog(DEBUG1, "set: new set=%s, value=%s, setelementfound=%d", text_to_cstring(key), text_to_cstring(value), setelementfound);
-
-            dshash_release_lock(setinternalhtable, setelem);
-            dshash_detach(setinternalhtable);
-        }
-        else
-        {
-            /* Existing set: Attach and insert the value */
-            dshash_table *setinternalhtable = dshash_attach(g_dsa, &default_set_hash_params, topdbentry->value.set.hshsethndl, NULL);
-            bool setelementfound = false;
-            set_element *setelem = dshash_find_or_insert(setinternalhtable, dsa_get_address(g_dsa, dsa_value), &setelementfound);
-            elog(DEBUG1, "set: existing set=%s, value=%s, setelementfound=%d", text_to_cstring(key), text_to_cstring(value), setelementfound);
-
-            dshash_release_lock(setinternalhtable, setelem);
-            dshash_detach(setinternalhtable);
-        }
-
-        dshash_release_lock(g_htab, topdbentry);
+        htab = dshash_attach(g_dsa, &params_hashset, htabhandl, NULL);
     }
-    PG_CATCH();
-    {
-        /* Cleanup resources */
-        if (dsa_key != InvalidDsaPointer) dsa_free(g_dsa, dsa_key);
-        if (dsa_value != InvalidDsaPointer) dsa_free(g_dsa, dsa_value);
-        PG_RE_THROW();
-    }
-    PG_END_TRY();
+
+    /* Insert the value into the set */
+    bool setelementfound;
+    set_element *elem = dshash_find_or_insert(htab, elemstr, &setelementfound);
+    if (!setelementfound)
+        dbentry->value.set.card++;
+
+    elog(DEBUG1, "key=%s\tdbentryfound=%d\tsetelementfound=%d\tcard=%d",
+         text_to_cstring(key), dbentryfound, setelementfound, dbentry->value.set.card);
+
+    dshash_release_lock(htab, elem);
+    dshash_detach(htab);
+
+    dshash_release_lock(g_htab, dbentry);
 
     spat_detach_shmem();
     PG_RETURN_VOID();
+}
+
+PG_FUNCTION_INFO_V1(scard);
+Datum
+scard(PG_FUNCTION_ARGS)
+{
+    spat_attach_shmem();
+
+    /* Input key and value */
+    text *key = PG_GETARG_TEXT_PP(0);
+    Size keysz = VARSIZE_ANY(key);
+    dsa_pointer dsa_key = dsa_copy_to(g_dsa, key, keysz);
+
+    uint32 result;
+    bool isaset;
+    SpatDBEntry *dbentry =  dshash_find(g_htab, DSA_POINTER_TO_LOCAL(dsa_key), false);
+
+    if (dbentry) {
+        if (dbentry->valtyp == SPVAL_SET) {
+            isaset = true;
+            result = dbentry->value.set.card;
+        }
+        else {
+            isaset = false;
+        }
+        dshash_release_lock(g_htab, dbentry);
+    }
+    else {
+        isaset = false;
+    }
+    spat_detach_shmem();
+
+    if (isaset)
+         PG_RETURN_INT32(result);
+    else
+        PG_RETURN_NULL();
 }

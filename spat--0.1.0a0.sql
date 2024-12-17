@@ -67,3 +67,5 @@ CREATE FUNCTION ttl(text) RETURNS INTERVAL AS 'select getexpireat($1) - now()' L
 
 /* -------------------- SETS -------------------- */
 CREATE FUNCTION sadd(text, text) RETURNS VOID AS 'MODULE_PATHNAME' LANGUAGE C;
+CREATE FUNCTION scard(text) RETURNS INTEGER AS 'MODULE_PATHNAME' LANGUAGE C;
+

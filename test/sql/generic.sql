@@ -51,7 +51,24 @@ SELECT sptype('gsdgdf');
 
 -- SETS
 SELECT SADD('set1', 'elem1');
+SELECT SCARD('set1'); -- 1
 SELECT SPTYPE('set1');
-SELECT SADD('set1', 'sdgdf');
-SELECT SADD('set1', 'sdgdf');
-SELECT SPTYPE('set1');
+SELECT SADD('set1', 'elem2');
+SELECT SADD('set1', 'elem2'); --duplicate
+SELECT SADD('set1', 'elem3');
+SELECT SCARD('set1'); -- 3
+
+SELECT DEL('set1');
+SELECT SCARD('set1');
+
+SELECT SADD('set2', 'elem1');
+SELECT SCARD('set2'); -- 1
+SELECT SPTYPE('set2');
+SELECT SADD('set2', 'elem2');
+SELECT SADD('set2', 'elem2'); --duplicate
+SELECT SADD('set2', 'elem3');
+SELECT SCARD('set2'); -- 3
+SELECT SPTYPE('set2');
+
+SELECT SCARD('setxxxx');
+
