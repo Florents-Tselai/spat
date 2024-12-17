@@ -632,6 +632,42 @@ sadd(PG_FUNCTION_ARGS)
     PG_RETURN_VOID();
 }
 
+PG_FUNCTION_INFO_V1(sismember);
+Datum
+sismember(PG_FUNCTION_ARGS)
+{
+    spat_attach_shmem();
+    text *key = PG_GETARG_TEXT_PP(0);
+    Size keysz = VARSIZE_ANY(key);
+    dsa_pointer dsa_key = dsa_copy_to(g_dsa, key, keysz);
+    char *elemstr = text_to_cstring(PG_GETARG_TEXT_PP(1));
+
+    bool result;
+
+    SpatDBEntry *dbentry = dshash_find(g_htab, DSA_POINTER_TO_LOCAL(dsa_key), false);
+    if (dbentry) {
+        /* Existing entry */
+        Assert(dbentry->valtyp == SPVAL_SET);
+        dshash_table *htab = dshash_attach(g_dsa, &params_hashset, dbentry->value.set.hshsethndl, NULL);
+        dshash_release_lock(g_htab, dbentry);
+
+        set_element *elem = dshash_find(htab, elemstr, false);
+        if(elem) {
+            dshash_release_lock(htab, elem);
+            result = true;
+        } else {
+            result = false;
+        }
+        dshash_detach(htab);
+    }
+    else {
+        result = false;
+    }
+
+    spat_detach_shmem();
+    PG_RETURN_BOOL(result);
+}
+
 PG_FUNCTION_INFO_V1(scard);
 Datum
 scard(PG_FUNCTION_ARGS)

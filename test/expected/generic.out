@@ -274,3 +274,27 @@ SELECT SCARD('setxxxx');
       
 (1 row)
 
+SELECT SADD('set1', 'elem1'); -- remember we DEL set1 above
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SISMEMBER('set1', 'elem1'); -- t
+ sismember 
+-----------
+ t
+(1 row)
+
+SELECT SISMEMBER('set1', 'elem4'); -- f
+ sismember 
+-----------
+ f
+(1 row)
+
+SELECT SISMEMBER('setxxxx', 'elem4'); -- f
+ sismember 
+-----------
+ f
+(1 row)
+

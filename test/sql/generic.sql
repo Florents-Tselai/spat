@@ -72,3 +72,7 @@ SELECT SPTYPE('set2');
 
 SELECT SCARD('setxxxx');
 
+SELECT SADD('set1', 'elem1'); -- remember we DEL set1 above
+SELECT SISMEMBER('set1', 'elem1'); -- t
+SELECT SISMEMBER('set1', 'elem4'); -- f
+SELECT SISMEMBER('setxxxx', 'elem4'); -- f
