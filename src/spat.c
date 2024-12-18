@@ -68,15 +68,15 @@ PG_MODULE_MAGIC;
 */
 
 
-typedef enum valueType
+typedef enum spValueType
 {
     SPVAL_INVALID,
     SPVAL_NULL, /* not in DB */
     SPVAL_STRING,
     SPVAL_SET
-} valueType;
+} spValueType;
 
-static const char* typename(valueType t) {
+static const char* spTypeName(spValueType t) {
     switch (t) {
         case SPVAL_STRING:
             return "string";
@@ -92,7 +92,7 @@ static const char* typename(valueType t) {
 /* In-memory representation of an SPValue */
 typedef struct SPValue
 {
-    valueType valtyp;
+    spValueType valtyp;
 
     union
     {
@@ -103,6 +103,8 @@ typedef struct SPValue
 #define SpInvalidValSize InvalidAllocSize
 #define SpInvalidValDatum PointerGetDatum(NULL)
 #define SpMaxTTL DT_NOEND
+
+typedef dshash_table_handle dshash_set_handle;
 
 typedef struct SpatDBEntry
 {
@@ -115,7 +117,7 @@ typedef struct SpatDBEntry
 
     /* -------------------- Value -------------------- */
 
-    valueType valtyp;
+    spValueType valtyp;
 
     union
     {
@@ -126,8 +128,8 @@ typedef struct SpatDBEntry
         } ref;
 
         struct {
-            dshash_table_handle  hshsethndl;
-            uint32 card;
+            dshash_set_handle  hndl;
+            uint32 size;
         } set;
     } value;
 } SpatDBEntry;
@@ -265,7 +267,11 @@ dsa_pointer dsa_copy_to(dsa_area *dsa, void *val, Size valsz)
     return allocedptr;
 }
 
+#define SP_GETARG_KEY_DSA(n) dsa_copy_to(g_dsa, PG_GETARG_TEXT_PP((n)), VARSIZE_ANY(PG_GETARG_TEXT_PP((n))))
+
 #define DSA_POINTER_TO_LOCAL(p) dsa_get_address(g_dsa, (p))
+
+#define SP_DSA_KEY_TO_CSTRING(k) text_to_cstring(dsa_get_address(g_dsa, (k)))
 
 /* ---------------------------------------- Commands Implementation ---------------------------------------- */
 
@@ -463,7 +469,7 @@ PG_FUNCTION_INFO_V1(sptype);
 Datum
 sptype(PG_FUNCTION_ARGS)
 {
-    valueType result = SPVAL_NULL;
+    spValueType result = SPVAL_NULL;
 
     /* Begin processing */
     spat_attach_shmem();
@@ -480,7 +486,7 @@ sptype(PG_FUNCTION_ARGS)
 
     spat_detach_shmem();
 
-    PG_RETURN_TEXT_P(cstring_to_text(typename(result)));
+    PG_RETURN_TEXT_P(cstring_to_text(spTypeName(result)));
 
 }
 
@@ -571,27 +577,30 @@ Datum sp_db_size_bytes(PG_FUNCTION_ARGS)
 
 /* ---------------------------------------- SETS ---------------------------------------- */
 
+#define SP_SET_MAX_KEY_SIZE 64
+
 typedef struct set_element {
-    char key[64];
+    char key[SP_SET_MAX_KEY_SIZE];
 } set_element;
 
 static const dshash_parameters params_hashset = {
-        .key_size = 64, /* Fixed size for keys */
+        .key_size = SP_SET_MAX_KEY_SIZE,
         .entry_size = sizeof(set_element),
         .compare_function = dshash_strcmp,
         .hash_function = dshash_strhash,
         .copy_function = dshash_strcpy
 };
 
+#define SP_GETARG_SETELEM(n)  text_to_cstring(PG_GETARG_TEXT_PP((n)))
+
 PG_FUNCTION_INFO_V1(sadd);
 Datum
 sadd(PG_FUNCTION_ARGS)
 {
     spat_attach_shmem();
-    text *key = PG_GETARG_TEXT_PP(0);
-    Size keysz = VARSIZE_ANY(key);
-    dsa_pointer dsa_key = dsa_copy_to(g_dsa, key, keysz);
-    char *elemstr = text_to_cstring(PG_GETARG_TEXT_PP(1));
+
+    dsa_pointer dsa_key =  SP_GETARG_KEY_DSA(0);
+    char *elemstr = SP_GETARG_SETELEM(1);
 
     /* Insert/find the set in the global hash table */
     bool dbentryfound;
@@ -604,12 +613,12 @@ sadd(PG_FUNCTION_ARGS)
         dbentry->valtyp = SPVAL_SET;
         htab = dshash_create(g_dsa, &params_hashset, NULL);
         htabhandl = dshash_get_hash_table_handle(htab);
-        dbentry->value.set.hshsethndl = htabhandl;
-        dbentry->value.set.card = 0;
+        dbentry->value.set.hndl = htabhandl;
+        dbentry->value.set.size = 0;
     } else {
         /* Existing entry */
         Assert(dbentry->valtyp == SPVAL_SET);
-        htabhandl = dbentry->value.set.hshsethndl;
+        htabhandl = dbentry->value.set.hndl;
 
         htab = dshash_attach(g_dsa, &params_hashset, htabhandl, NULL);
     }
@@ -618,10 +627,10 @@ sadd(PG_FUNCTION_ARGS)
     bool setelementfound;
     set_element *elem = dshash_find_or_insert(htab, elemstr, &setelementfound);
     if (!setelementfound)
-        dbentry->value.set.card++;
+        dbentry->value.set.size++;
 
     elog(DEBUG1, "key=%s\tdbentryfound=%d\tsetelementfound=%d\tcard=%d",
-         text_to_cstring(key), dbentryfound, setelementfound, dbentry->value.set.card);
+         SP_DSA_KEY_TO_CSTRING(dsa_key), dbentryfound, setelementfound, dbentry->value.set.size);
 
     dshash_release_lock(htab, elem);
     dshash_detach(htab);
@@ -648,7 +657,7 @@ sismember(PG_FUNCTION_ARGS)
     if (dbentry) {
         /* Existing entry */
         Assert(dbentry->valtyp == SPVAL_SET);
-        dshash_table *htab = dshash_attach(g_dsa, &params_hashset, dbentry->value.set.hshsethndl, NULL);
+        dshash_table *htab = dshash_attach(g_dsa, &params_hashset, dbentry->value.set.hndl, NULL);
         dshash_release_lock(g_htab, dbentry);
 
         set_element *elem = dshash_find(htab, elemstr, false);
@@ -686,7 +695,7 @@ scard(PG_FUNCTION_ARGS)
     if (dbentry) {
         if (dbentry->valtyp == SPVAL_SET) {
             isaset = true;
-            result = dbentry->value.set.card;
+            result = dbentry->value.set.size;
         }
         else {
             isaset = false;

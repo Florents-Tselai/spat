@@ -147,3 +147,8 @@ Spat relies on the two following features of Postgres
 
 - PG10 Introduced dynamic shared memory areas (DSA) in [13df76a](https://github.com/postgres/postgres/commit/13df76a)
 - PG17 Introduced the dynamic shared memory registry in [8b2bcf3](https://github.com/postgres/postgres/commit/8b2bcf3)
+
+Internally it stores its data in a `dshash`: 
+this is an open hashing hash table, with a linked list at each table entry.  
+It supports dynamic resizing, as required to prevent the linked lists from growing too long on average.  
+Currently, only growing is supported: the hash table never becomes smaller.
