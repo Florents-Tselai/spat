@@ -12,46 +12,39 @@ your caching layer within your SQL queries.
 
 ## Usage 
 
-`SSET(key, value, ttl interval, nx bool, xx bool) → spval`
+### Strings
+
+`SPSET(key, value, ttl interval) → spval`
 
 Set key to hold the value. If key already holds a value, it is overwritten, regardless of its type.
 Any previous time to live associated with the key is discarded on successful SET operation.
-`ttl` sets the TTL interval. 
+`ttl` sets the TTL interval.
 `nx` only set the key if it does not already exist.
 `xx` only set the key if already exists.
 Returns the value.
 
-`SP_DB_SIZE() → integer`
+### Sets
 
-Returns the current number of entries in the database
+### Generic
 
 `DEL(key) → boolean`
 
-Remove an entry by key.  Returns true if the key was found and the corresponding entry was removed.
-
-`SCAN() → setof text`
-
-Iterates over the key names in the database
-
-`PEXPIRETIME(key) → timestamptz`
-
-Returns the expiration timestamp of a key 
+Remove an entry by key. 
+Returns true if the key was found and the corresponding entry was removed.
 
 `TTL(key) → interval`
 
 Returns the TTL interval of a key
 
-`PERSIST(key)`
+`SP_DB_NITEMS() → integer`
 
-Removes the expiration time of a key
+Returns the current number of entries in the database.
 
-`SEXISTS(key) → bool`
+`SP_DB_SIZE_BYTES() → bigint`
 
-Determines whether a key exists
+`SP_DB_SIZE() → text`
 
-`SCOPY(key, key)`
-
-Copies the value of a key to a new key
+Size of the database in bytes and in human-friendly text.
 
 ### Multiple Databases 
 
