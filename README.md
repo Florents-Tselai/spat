@@ -14,18 +14,53 @@ your caching layer within your SQL queries.
 
 ### Strings
 
-`SPSET(key, value, ttl interval) → spval`
+`SPSET(key, value[, ttl interval]) → spval`
 
 Set key to hold the value. If key already holds a value, it is overwritten, regardless of its type.
 Any previous time to live associated with the key is discarded on successful SET operation.
-`ttl` sets the TTL interval.
-`nx` only set the key if it does not already exist.
-`xx` only set the key if already exists.
+The optional `ttl` sets the TTL interval.
 Returns the value.
+
+`SPGET(key) → text`
+
+Get the value of key. 
+If the key does not exist NULL is returned. 
+An error is returned if the value stored at key is not a string, because GET only handles string values.
 
 ### Sets
 
+`SADD(key, member) → int`
+
+Add the specified members to the set stored at key. 
+Specified members that are already a member of this set are ignored. 
+If key does not exist, a new set is created before adding the specified members.
+Returns the number of elements that were added to the set, not including all the elements already present in the set.
+An error is returned when the value stored at key is not a set
+
+`SISMEMBER(key, member) → bool`
+
+Returns if `member` is a member of the set stored at `key`.
+
+`SREM(key, member) → int`
+
+Remove the specified members from the set stored at key. 
+Specified members that are not a member of this set are ignored. 
+If key does not exist, it is treated as an empty set and this command returns 0.
+Returns he number of members that were removed from the set, not including non existing members.
+An error is returned when the value stored at key is not a set.
+
+`SCARD(key) → int`
+
+Returns the set cardinality (number of elements) of the set stored at key,
+or 0 if the key does not exist.
+
 ### Generic
+
+`SPTYPE(key) → text`
+
+Returns the string representation of the type of the value stored at key. 
+The different types that can be returned are: string, list, set, zset, hash and stream.
+Returns `NULL` when key doesn't exist.
 
 `DEL(key) → boolean`
 
@@ -35,6 +70,10 @@ Returns true if the key was found and the corresponding entry was removed.
 `TTL(key) → interval`
 
 Returns the TTL interval of a key
+
+`GETEXPIREAT(key) → timestamptz`
+
+Shorthand for `GETEXPIREAT(key) - NOW()`
 
 `SP_DB_NITEMS() → integer`
 
