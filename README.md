@@ -117,13 +117,14 @@ SET spat.db = 'spat-default';
 
 ## Configuration
 
-To completely disable disk access 
-in Postgres (including writes for checkpointing, WAL flushing, etc.), 
-you would need to configure it in a way that ensures all operations are kept in memory.
+You can't just turn Postgres into an in-memory database.
+But maybe, just maybe, you can get close enough by configuring it accordingly.
 
-You can get close to that if you tweak its configuration
+The first step would be to use `PGDATA=/dev/shm` or other similar memory-backed filesystem.
+Below are a few more ideas in that direction. 
 
-Use `PGDATA=/dev/shm` or other similar memory-backed filesystem.
+<details>
+<summary>Sample Configuration</summary>
 
 ```sql
 -- Disable Logging
@@ -161,6 +162,9 @@ ALTER SYSTEM SET stats_temp_directory = '/dev/shm';
 ALTER SYSTEM SET bgwriter_lru_maxpages = 0;
 ALTER SYSTEM SET bgwriter_delay = '10min'; -- Delay any operations
 ```
+
+</details>
+
 ## FAQ 
 
 #### What's the performance of this ?
