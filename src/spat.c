@@ -677,6 +677,51 @@ sismember(PG_FUNCTION_ARGS)
     PG_RETURN_BOOL(result);
 }
 
+/*
+ * Remove the specified members from the set stored at key.
+ * Specified members that are not a member of this set are ignored.
+ * If key does not exist, it is treated as an empty set and this command returns 0.
+ * An error is returned when the value stored at key is not a set.
+ */
+PG_FUNCTION_INFO_V1(srem);
+Datum
+srem(PG_FUNCTION_ARGS)
+{
+    spat_attach_shmem();
+
+    dsa_pointer key = SP_GETARG_KEY_DSA(0);
+    char *elem      = SP_GETARG_SETELEM(1);
+
+    int32 result;
+
+    SpatDBEntry *dbentry = dshash_find(g_htab,
+                                       DSA_POINTER_TO_LOCAL(key),
+                                       true);
+    if (dbentry) {
+        /* Existing entry */
+        Assert(dbentry->valtyp == SPVAL_SET);
+
+        dshash_table *htab = dshash_attach(g_dsa, &params_hashset,
+                                           dbentry->value.set.hndl, NULL);
+
+        bool deleted = dshash_delete_key(htab, elem);
+
+        if (deleted)
+            dbentry->value.set.size--;
+
+        result = deleted ? 1 : 0;
+
+        dshash_detach(htab);
+        dshash_release_lock(g_htab, dbentry);
+    }
+    else {
+        result = 0;
+    }
+
+    spat_detach_shmem();
+    PG_RETURN_BOOL(result);
+}
+
 PG_FUNCTION_INFO_V1(scard);
 Datum
 scard(PG_FUNCTION_ARGS)

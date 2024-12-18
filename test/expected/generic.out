@@ -298,3 +298,46 @@ SELECT SISMEMBER('setxxxx', 'elem4'); -- f
  f
 (1 row)
 
+-- SREM
+SELECT SADD('remset1', 'elem1');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SCARD('remset1'); -- 1
+ scard 
+-------
+     1
+(1 row)
+
+SELECT SREM('remset1', 'nothere'); -- f
+ srem 
+------
+    0
+(1 row)
+
+SELECT SISMEMBER('remset1', 'elem1'); -- t
+ sismember 
+-----------
+ t
+(1 row)
+
+SELECT SREM('remset1', 'elem1'); -- t
+ srem 
+------
+    1
+(1 row)
+
+SELECT SISMEMBER('remset1', 'elem1'); -- f
+ sismember 
+-----------
+ f
+(1 row)
+
+SELECT SCARD('remset1'); -- 0
+ scard 
+-------
+     0
+(1 row)
+

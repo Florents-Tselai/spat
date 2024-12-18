@@ -76,3 +76,12 @@ SELECT SADD('set1', 'elem1'); -- remember we DEL set1 above
 SELECT SISMEMBER('set1', 'elem1'); -- t
 SELECT SISMEMBER('set1', 'elem4'); -- f
 SELECT SISMEMBER('setxxxx', 'elem4'); -- f
+
+-- SREM
+SELECT SADD('remset1', 'elem1');
+SELECT SCARD('remset1'); -- 1
+SELECT SREM('remset1', 'nothere'); -- f
+SELECT SISMEMBER('remset1', 'elem1'); -- t
+SELECT SREM('remset1', 'elem1'); -- t
+SELECT SISMEMBER('remset1', 'elem1'); -- f
+SELECT SCARD('remset1'); -- 0
