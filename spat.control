@@ -1,4 +1,4 @@
-comment = 'Redis-like in-memory database embedded in Postgres'
+comment = 'spat: Redis-like In-Memory DB Embedded in Postgres'
 default_version = '0.1.0a0'
 module_pathname = '$libdir/spat'
 relocatable = true

@@ -3,7 +3,6 @@ EXTVERSION = v0.1.0a0
 
 MODULE_big = $(EXTENSION)
 OBJS = src/spat.o
-PGFILEDESC = "Redis-like in-memory database embedded in Postgres"
 
 DATA = spat--0.1.0a0.sql
 

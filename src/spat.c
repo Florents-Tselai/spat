@@ -1,21 +1,10 @@
 /*--------------------------------------------------------------------------
  *
  * spat.c
- *		Redis-like in-memory database embedded in Postgres
+ *  spat: Redis-like In-Memory DB Embedded in Postgres
  *
  * A SpatDB is just a segment of Postgres' memory addressable by a name.
  * Its data model is key-value.
- *
- * Keys are strings, values can have different types (data structures)
- * Both keys and values, underneath are traditional Datums,
- * stored in a DSA and allocated with dsa_allocate,
- * instead of palloc-ed in the CurrentMemoryContext.
- *
- * It uses a dshash_table to store its data internally.
- * This is an open hashing hash table, with a linked list at each table
- * entry.  It supports dynamic resizing, as required to prevent the linked
- * lists from growing too long on average.  Currently, only growing is
- * supported: the hash table never becomes smaller.
  *
  * Copyright (c) 2024, Florents Tselai
  *
@@ -173,7 +162,8 @@ typedef enum spValueType
     SPVAL_INVALID,
     SPVAL_NULL, /* not in DB */
     SPVAL_STRING,
-    SPVAL_SET
+    SPVAL_SET,
+    SPVAL_LIST
 } spValueType;
 
 static const char* spTypeName(spValueType t) {
@@ -211,6 +201,13 @@ typedef struct SPValue
 
 typedef dshash_table_handle dshash_set_handle;
 
+typedef struct list_element {
+    dss data;
+
+    dsa_pointer prev;
+    dsa_pointer next;
+} list_element;
+
 typedef struct SpatDBEntry
 {
     /* -------------------- Key -------------------- */
@@ -232,6 +229,13 @@ typedef struct SpatDBEntry
             dshash_set_handle  hndl;
             uint32 size;
         } set;
+
+        struct {
+            uint32 size;
+            dsa_pointer head;
+            dsa_pointer tail;
+        } list;
+
     } value;
 } SpatDBEntry;
 
@@ -866,9 +870,163 @@ sinter(PG_FUNCTION_ARGS) {
     spat_attach_shmem();
 
     dss key1 = PG_GETARG_DSS(0);
-    dss key2 = PG_GETARG_DSS(2);
+    dss key2 = PG_GETARG_DSS(1);
 
     spat_detach_shmem();
 
+
+}
+
+/* ---------------------------------------- LISTS ---------------------------------------- */
+
+#define LIST_NIL InvalidDsaPointer
+
+PG_FUNCTION_INFO_V1(lpush);
+Datum
+lpush(PG_FUNCTION_ARGS) {
+    spat_attach_shmem();
+
+    /* Retrieve the key and the element arguments */
+    dss key = PG_GETARG_DSS(0);
+    dss elem = PG_GETARG_DSS(1);
+
+    /* Insert/find the list in the global hash table */
+    bool dbentryfound;
+    SpatDBEntry *dbentry = dshash_find_or_insert(g_htab, &key, &dbentryfound);
+
+    if (!dbentryfound) {
+        /* Initialize the list if it does not exist */
+        dbentry->valtyp = SPVAL_LIST;
+        dbentry->value.list.size = 1;
+
+        /* Allocate a new list element in the DSA */
+        dsa_pointer new_elem_ptr = dsa_allocate(g_dsa, sizeof(list_element));
+        list_element *new_elem = dsa_get_address(g_dsa, new_elem_ptr);
+
+        /* Set the data for the new element */
+        new_elem->data = elem;
+        new_elem->prev = LIST_NIL; /* No previous element */
+        new_elem->next = LIST_NIL; /* No next element */
+
+        /* Point head and tail to the new element */
+        dbentry->value.list.head = new_elem_ptr;
+        dbentry->value.list.tail = new_elem_ptr;
+
+    }
+    else {
+        /* List already exists: Insert at the head of the list */
+        Assert(dbentry->valtyp == SPVAL_LIST);
+
+        /* Allocate a new list element in the DSA */
+        dsa_pointer new_elem_ptr = dsa_allocate(g_dsa, sizeof(list_element));
+        list_element *new_elem = dsa_get_address(g_dsa, new_elem_ptr);
+
+        /* Set the data for the new element */
+        new_elem->data = elem;
+
+        /* Update pointers to insert the new element at the head */
+        new_elem->prev = LIST_NIL; /* No previous element since it's the new head */
+        new_elem->next = dbentry->value.list.head; /* Point to the current head */
+
+        /* Update the old head's previous pointer */
+        list_element *old_head = dsa_get_address(g_dsa, dbentry->value.list.head);
+        old_head->prev = new_elem_ptr;
+
+        /* Update the list head pointer to the new element */
+        dbentry->value.list.head = new_elem_ptr;
+
+        /* Increment the list size */
+        dbentry->value.list.size++;
+    }
+
+    dshash_release_lock(g_htab, dbentry);
+    spat_detach_shmem();
+    PG_RETURN_VOID();
+}
+
+PG_FUNCTION_INFO_V1(llen);
+Datum
+llen(PG_FUNCTION_ARGS) {
+    spat_attach_shmem();
+
+    /* Retrieve the key and the element arguments */
+    dss key = PG_GETARG_DSS(0);
+
+    /* Insert/find the list in the global hash table */
+    bool dbentryfound;
+    uint32 result;
+
+    SpatDBEntry *dbentry = dshash_find_or_insert(g_htab, &key, &dbentryfound);
+
+    if (dbentryfound) {
+        result = dbentry->value.list.size;
+    }
+
+    dshash_release_lock(g_htab, dbentry);
+    spat_detach_shmem();
+
+    if (dbentryfound)
+        PG_RETURN_INT32(result);
+    else
+        PG_RETURN_NULL();
+}
+
+PG_FUNCTION_INFO_V1(lpop);
+Datum
+lpop(PG_FUNCTION_ARGS) {
+    spat_attach_shmem();
+
+    /* Retrieve the key argument */
+    dss key = PG_GETARG_DSS(0);
+
+    /* Find the list in the global hash table */
+    bool dbentryfound;
+    SpatDBEntry *dbentry = dshash_find_or_insert(g_htab, &key, &dbentryfound);
+
+    /* If the list does not exist, release the lock and return NULL */
+    if (!dbentryfound || dbentry->valtyp != SPVAL_LIST || dbentry->value.list.size == 0) {
+        dshash_release_lock(g_htab, dbentry);
+        spat_detach_shmem();
+        PG_RETURN_NULL();
+    }
+
+    /* Retrieve the head of the list */
+    dsa_pointer head_ptr = dbentry->value.list.head;
+    list_element *head_elem = dsa_get_address(g_dsa, head_ptr);
+
+    /* Prepare the return value (head element data) */
+    text *result = cstring_to_text_with_len((char *) dsa_get_address(g_dsa, head_elem->data.str),
+                                            head_elem->data.len - 1);
+
+    /* Update the list to remove the head */
+    dbentry->value.list.head = head_elem->next;
+
+    if (dbentry->value.list.head != InvalidDsaPointer) {
+        /* Update the new head's `prev` pointer to `InvalidDsaPointer` */
+        list_element *new_head = dsa_get_address(g_dsa, dbentry->value.list.head);
+        new_head->prev = InvalidDsaPointer;
+    } else {
+        /* The list is now empty, update the tail pointer */
+        dbentry->value.list.tail = InvalidDsaPointer;
+    }
+
+    /* Decrement the size of the list */
+    dbentry->value.list.size--;
+
+    /* Free the old head element from the DSA */
+    dsa_free(g_dsa, head_ptr);
+
+    /* Release the lock on the hash table entry */
+    dshash_release_lock(g_htab, dbentry);
+
+    spat_detach_shmem();
+
+    /* Return the result */
+    PG_RETURN_TEXT_P(result);
+}
+
+PG_FUNCTION_INFO_V1(rpop);
+Datum
+rpop(PG_FUNCTION_ARGS) {
 
 }

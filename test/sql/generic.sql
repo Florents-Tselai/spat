@@ -95,3 +95,19 @@ SELECT SADD('set1', 'elem2');
 
 SELECT SPGET('set1');
 
+/* -------------------- LISTS -------------------- */
+
+/* LPUSH -> LEN -> LPOP */
+SELECT LPUSH('list1', 'elem1');
+SELECT LLEN('list1'); -- 1
+SELECT LPUSH('list1', 'elem2');
+SELECT LLEN('list1'); -- 2
+
+SELECT LPOP('list1'); -- elem1
+SELECT LLEN('list1'); -- 1
+
+SELECT LPOP('list1'); -- elem2
+SELECT LLEN('list1'); -- 2
+
+SELECT LPOP('list1'); -- null
+SELECT LLEN('list1'); -- o
