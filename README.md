@@ -1,4 +1,4 @@
-# spat: Redis-like in-memory database embedded in Postgres
+# spat: Redis-like In-Memory DB Embedded in Postgres
 
 [![Build Status](https://github.com/Florents-Tselai/spat/actions/workflows/build.yml/badge.svg)](https://github.com/Florents-Tselai/spat/actions)
 
@@ -10,7 +10,33 @@ thus, you don't need an external caching service,
 while at the same time, you can easily manage 
 your caching layer within your SQL queries.
 
+```sql
+SELECT SPSET('key', 'value');
+SELECT SPGET('key');
+
+SELECT SADD('set1', 'elem1', 'elem2');
+SELECT SISMEMBER('set1', 'elem1'); -- t
+
+```
+
 ## Usage 
+
+spat `key`s are always `text`. 
+
+Values can be strings (aka `text` Postgres type) or data structures containing strings (sets, lists etc.).
+You can, however, pass `anyelement` to `SPSET,` and the value will be stored as a string according to the type's textual representation.
+
+For example, to cache a `jsonb` object and get it back, you can do something like:
+
+```sql
+SELECT SPSET('k', '{"a": {"b": {"c": 1}}}'::jsonb);
+
+SELECT SPGET('k')::text::jsonb;
+```
+
+If the value stored for a key is not a string,
+it will return a human-friendly representation of the value.
+Usually the data structure type and its current size.
 
 ### Strings
 
