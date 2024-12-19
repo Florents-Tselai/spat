@@ -74,13 +74,13 @@ PG_MODULE_MAGIC;
  */
 
 typedef struct dss {
-    dsa_pointer str;
-    Size len;
+    dsa_pointer str; /* =VARDATA_ANY(txt) */
+    Size len; /* = strlen + 1 = VARSIZE_ANY_EXHDR(t) + 1 */
 } dss;
 
 
 static int
-dshash_dss_cmp_arg(const void *a, const void *b, size_t size, void *arg)
+dss_cmp_arg(const void *a, const void *b, size_t size, void *arg)
 {
     dsa_area *dsa = (dsa_area *) arg;
     const dss *dss_a = (const dss *) a;
@@ -97,7 +97,7 @@ dshash_dss_cmp_arg(const void *a, const void *b, size_t size, void *arg)
 }
 
 static dshash_hash
-dshash_dss_hash_arg(const void *key, size_t size, void *arg)
+dss_hash_arg(const void *key, size_t size, void *arg)
 {
     dsa_area *dsa = (dsa_area *) arg;
     const dss *dss_key = (const dss *) key;
@@ -107,7 +107,7 @@ dshash_dss_hash_arg(const void *key, size_t size, void *arg)
 }
 
 static void
-dshash_dss_copy_arg(void *dest, const void *src, size_t size, void *arg)
+dss_cpy_arg(void *dest, const void *src, size_t size, void *arg)
 {
     dsa_area *dsa = (dsa_area *) arg;
     dss *dss_dest = (dss *) dest;
@@ -192,11 +192,16 @@ static const char* spTypeName(spValueType t) {
 /* In-memory representation of an SPValue */
 typedef struct SPValue
 {
-    spValueType valtyp;
+    spValueType typ;
 
     union
     {
         struct varlena* varlena_val;
+        struct
+        {
+            uint32 size;
+        } set;
+
     } value;
 } SPValue;
 
@@ -221,11 +226,7 @@ typedef struct SpatDBEntry
 
     union
     {
-        struct
-        {
-            Size valsz;
-            dsa_pointer valptr;
-        } ref;
+        dss string;
 
         struct {
             dshash_set_handle  hndl;
@@ -265,26 +266,26 @@ static dshash_table* g_htab = NULL;
 
 
 static int
-dshash_dss_cmp(const void *a, const void *b, size_t size, void *arg) {
-    return dshash_dss_cmp_arg(a, b, size, g_dsa);
+dss_cmp(const void *a, const void *b, size_t size, void *arg) {
+    return dss_cmp_arg(a, b, size, g_dsa);
 }
 
 static dshash_hash
-dshash_dss_hash(const void *key, size_t size, void *arg) {
-    return dshash_dss_hash_arg(key, size, g_dsa);
+dss_hash(const void *key, size_t size, void *arg) {
+    return dss_hash_arg(key, size, g_dsa);
 }
 
 static void
-dshash_dss_copy(void *dest, const void *src, size_t size,  void *arg) {
-    dshash_dss_copy_arg(dest, src, size, g_dsa);
+dss_copy(void *dest, const void *src, size_t size, void *arg) {
+    dss_cpy_arg(dest, src, size, g_dsa);
 }
 
 static const dshash_parameters default_hash_params = {
     .key_size = sizeof(dss),
     .entry_size = sizeof(SpatDBEntry),
-    .compare_function = dshash_dss_cmp,
-    .hash_function = dshash_dss_hash,
-    .copy_function = dshash_dss_copy
+    .compare_function = dss_cmp,
+    .hash_function = dss_hash,
+    .copy_function = dss_copy
 };
 
 /* ---------------------------------------- Shared Memory Implementation ---------------------------------------- */
@@ -396,7 +397,7 @@ spvalue_out(PG_FUNCTION_ARGS)
     initStringInfo(&output);
 
     /* Convert spval back to a string based on its type */
-    switch (input->valtyp)
+    switch (input->typ)
     {
         case SPVAL_STRING:
             appendStringInfoString(&output, text_to_cstring(input->value.varlena_val));
@@ -408,7 +409,7 @@ spvalue_out(PG_FUNCTION_ARGS)
             appendStringInfoString(&output, "null");
             break;
         case SPVAL_SET:
-            appendStringInfoString(&output, "set {}");
+            appendStringInfo(&output, "set (%d)", input->value.set.size);
             break;
     }
 
@@ -445,21 +446,30 @@ spat_db_created_at(PG_FUNCTION_ARGS)
 
 SPValue* makeSpvalFromEntry(dsa_area* dsa, SpatDBEntry* entry)
 {
-    SPValue* result;
+    SPValue *result = (SPValue*) palloc(sizeof(SPValue));
 
-    Assert(entry->valtyp == SPVAL_STRING);
+    switch (entry->valtyp) {
+        case SPVAL_INVALID:
+            break;
+        case SPVAL_NULL:
+            break;
+        case SPVAL_STRING: {
+            Size realSize = entry->value.string.len;
 
-    result = (SPValue*)palloc(sizeof(SPValue));
+            text* text_result = (text*)palloc(realSize);
+            SET_VARSIZE(text_result, realSize);
 
-    Size realSize = entry->value.ref.valsz;
+            memcpy(text_result, dsa_get_address(dsa, entry->value.string.str), realSize);
 
-    text* text_result = (text*)palloc(realSize);
-    SET_VARSIZE(text_result, realSize);
-
-    memcpy(text_result, dsa_get_address(dsa, entry->value.ref.valptr), realSize);
-
-    result->valtyp = SPVAL_STRING;
-    result->value.varlena_val = text_result;
+            result->typ = SPVAL_STRING;
+            result->value.varlena_val = text_result;
+            break;
+        }
+        case SPVAL_SET:
+            result->typ = SPVAL_SET;
+            result->value.set.size = entry->value.set.size;
+            break;
+    }
 
     return result;
 }
@@ -517,9 +527,9 @@ spset_generic(PG_FUNCTION_ARGS)
     }
 
     entry->valtyp = SPVAL_STRING;
-    entry->value.ref.valsz = VARSIZE_ANY(value);
-    entry->value.ref.valptr = dsa_allocate(g_dsa, VARSIZE_ANY(value));
-    memcpy(dsa_get_address(g_dsa, entry->value.ref.valptr), DatumGetPointer(value), VARSIZE_ANY(value));
+    entry->value.string.len = VARSIZE_ANY(value);
+    entry->value.string.str = dsa_allocate(g_dsa, VARSIZE_ANY(value));
+    memcpy(dsa_get_address(g_dsa, entry->value.string.str), DatumGetPointer(value), VARSIZE_ANY(value));
 
     /* Prepare the SPvalue to echo / return */
     SPValue* result = makeSpvalFromEntry(g_dsa, entry);
@@ -569,7 +579,6 @@ sptype(PG_FUNCTION_ARGS)
     /* Begin processing */
     spat_attach_shmem();
     dss key = PG_GETARG_DSS(0);
-
 
     SpatDBEntry *entry = dshash_find(g_htab, &key, false);
     if (entry) {
@@ -686,9 +695,9 @@ dss_echo(PG_FUNCTION_ARGS)
 static const dshash_parameters params_hashset = {
         .key_size = sizeof(dss),
         .entry_size = sizeof(dss),
-        .compare_function = dshash_dss_cmp,
-        .hash_function = dshash_dss_hash,
-        .copy_function = dshash_dss_copy
+        .compare_function = dss_cmp,
+        .hash_function = dss_hash,
+        .copy_function = dss_copy
 };
 
 PG_FUNCTION_INFO_V1(sadd);

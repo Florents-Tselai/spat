@@ -10,6 +10,8 @@ SELECT spat_db_created_at() NOTNULL;
 
 SET spat.db = 'spat-default';
 
+/* -------------------- STRINGS / GENERIC -------------------- */
+
 -- SET - DELETE - SIZE
 SELECT spset('tkey1', 'dfgf');
 SELECT spset('tkeygdfg1', 'dfgf');
@@ -49,7 +51,8 @@ SELECT sptype('key1');
 
 SELECT sptype('gsdgdf');
 
--- SETS
+/* -------------------- SETS -------------------- */
+
 SELECT SADD('set1', 'elem1');
 SELECT SCARD('set1'); -- 1
 SELECT SPTYPE('set1');
@@ -85,3 +88,10 @@ SELECT SISMEMBER('remset1', 'elem1'); -- t
 SELECT SREM('remset1', 'elem1'); -- t
 SELECT SISMEMBER('remset1', 'elem1'); -- f
 SELECT SCARD('remset1'); -- 0
+
+-- SPGET for set
+SELECT SADD('set1', 'elem1');
+SELECT SADD('set1', 'elem2');
+
+SELECT SPGET('set1');
+

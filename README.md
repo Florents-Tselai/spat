@@ -14,12 +14,13 @@ your caching layer within your SQL queries.
 
 ### Strings
 
-`SPSET(key, value[, ttl interval]) → spval`
+`SPSET(key, value[, echo bool, ttl interval]) → spval`
 
-Set key to hold the value. If key already holds a value, it is overwritten, regardless of its type.
+Set key to hold the value. 
+If key already holds a value, it is overwritten, regardless of its type.
 Any previous time to live associated with the key is discarded on successful SET operation.
 The optional `ttl` sets the TTL interval.
-Returns the value.
+Returns the value if `echo` is set. If not (the default), the function returns NULL.
 
 `SPGET(key) → text`
 
@@ -46,7 +47,7 @@ Returns if `member` is a member of the set stored at `key`.
 Remove the specified members from the set stored at key. 
 Specified members that are not a member of this set are ignored. 
 If key does not exist, it is treated as an empty set and this command returns 0.
-Returns he number of members that were removed from the set, not including non existing members.
+Returns the number of members that were removed from the set, not including non existing members.
 An error is returned when the value stored at key is not a set.
 
 `SCARD(key) → int`

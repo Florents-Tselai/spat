@@ -21,6 +21,7 @@ SELECT spat_db_created_at() NOTNULL;
 
 -- switch back to the default to preserve my sanity when copy-pasting
 SET spat.db = 'spat-default';
+/* -------------------- STRINGS / GENERIC -------------------- */
 -- SET - DELETE - SIZE
 SELECT spset('tkey1', 'dfgf');
  spset 
@@ -165,7 +166,7 @@ SELECT sptype('gsdgdf');
  null
 (1 row)
 
--- SETS
+/* -------------------- SETS -------------------- */
 SELECT SADD('set1', 'elem1');
  sadd 
 ------
@@ -339,5 +340,24 @@ SELECT SCARD('remset1'); -- 0
  scard 
 -------
      0
+(1 row)
+
+-- SPGET for set
+SELECT SADD('set1', 'elem1');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SADD('set1', 'elem2');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SPGET('set1');
+  spget  
+---------
+ set (2)
 (1 row)
 
