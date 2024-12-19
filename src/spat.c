@@ -574,24 +574,145 @@ Datum sp_db_size_bytes(PG_FUNCTION_ARGS)
     PG_RETURN_INT64(result);
 }
 
+/* ---------------------------------------- DSS ---------------------------------------- */
+
+typedef struct dss {
+    dsa_pointer str;
+    Size len;
+} dss;
+
+static dss dss_new_extended(dsa_area *dsa, const char *str, Size len)
+{
+    dss result;
+    result.str = dsa_allocate(dsa, len);
+    result.len = len;
+    memcpy(dsa_get_address(dsa, result.str), str, len);
+    return result;
+}
+
+static dss dss_new(dsa_area *dsa, const text *txt)
+{
+    dss result;
+
+    Size len = VARSIZE_ANY_EXHDR(txt) + 1;
+
+    result.str = dsa_allocate(dsa, len);
+    result.len = len;
+
+    /* Copy the text payload into the allocated memory */
+    char *dest = dsa_get_address(dsa, result.str);
+    memcpy(dest, VARDATA_ANY(txt), len - 1);
+
+    /* Null-terminate the string */
+    dest[len - 1] = '\0';
+
+    return result;
+}
+
+static text* dss_to_text(dsa_area *dsa, dss dss) {
+    Size data_len = dss.len - 1; /* Exclude null terminator */
+    text *result = (text *) palloc(data_len + VARHDRSZ);
+
+    /* Set the total size of the text object */
+    SET_VARSIZE(result, data_len + VARHDRSZ);
+
+    /* Copy the string data into the text structure */
+    memcpy(VARDATA(result), dsa_get_address(dsa, dss.str), data_len);
+
+    return result;
+}
+
+static void dss_free(dsa_area *dsa, dss *dss) {
+    dsa_free(dsa, dss->str);
+}
+
+#define PG_GETARG_DSS(n) dss_new(g_dsa, PG_GETARG_TEXT_PP((n)))
+#define DSS_LEN(s) dsa_get_address(g_dsa, (s))->len
+#define DSS_TO_TEXT(s) dss_to_text(g_dsa, (s))
+
+PG_FUNCTION_INFO_V1(dss_echo);
+
+Datum
+dss_echo(PG_FUNCTION_ARGS)
+{
+    spat_attach_shmem();
+    dss arg0 = PG_GETARG_DSS(0);
+    text *result = DSS_TO_TEXT(arg0);
+
+    spat_detach_shmem();
+
+    PG_RETURN_TEXT_P(result);
+}
+
+static int
+dshash_dss_cmp_arg(const void *a, const void *b, size_t size, void *arg)
+{
+    dsa_area *dsa = (dsa_area *) arg;
+    const dss *dss_a = (const dss *) a;
+    const dss *dss_b = (const dss *) b;
+
+    /* Compare lengths first */
+    if (dss_a->len != dss_b->len)
+        return (dss_a->len < dss_b->len) ? -1 : 1;
+
+    /* Compare data byte-by-byte */
+    return memcmp(dsa_get_address(dsa, dss_a->str),
+                  dsa_get_address(dsa, dss_b->str),
+                  dss_a->len - 1); /* Exclude null terminator */
+}
+
+static int
+dshash_dss_cmp(const void *a, const void *b, size_t size, void *arg) {
+    return dshash_dss_cmp_arg(a, b, size, g_dsa);
+}
+
+static dshash_hash
+dshash_dss_hash_arg(const void *key, size_t size, void *arg)
+{
+    dsa_area *dsa = (dsa_area *) arg;
+    const dss *dss_key = (const dss *) key;
+
+    /* Hash the key data (excluding null terminator) */
+    return tag_hash(dsa_get_address(dsa, dss_key->str), dss_key->len - 1);
+}
+
+static dshash_hash
+dshash_dss_hash(const void *key, size_t size, void *arg) {
+    return dshash_dss_hash_arg(key, size, g_dsa);
+}
+
+static void
+dshash_dss_copy_arg(void *dest, const void *src, size_t size, void *arg)
+{
+    dsa_area *dsa = (dsa_area *) arg;
+    dss *dss_dest = (dss *) dest;
+    const dss *dss_src = (const dss *) src;
+
+    /* Allocate memory in the destination DSS */
+    dss_dest->len = dss_src->len;
+    dss_dest->str = dsa_allocate(dsa, dss_src->len);
+
+    /* Copy the key data */
+    memcpy(dsa_get_address(dsa, dss_dest->str),
+           dsa_get_address(dsa, dss_src->str),
+           dss_src->len);
+}
+
+static void
+dshash_dss_copy(void *dest, const void *src, size_t size,  void *arg) {
+    dshash_dss_copy_arg(dest, src, size, g_dsa);
+}
+
 
 /* ---------------------------------------- SETS ---------------------------------------- */
 
-#define SP_SET_MAX_KEY_SIZE 64
-
-typedef struct set_element {
-    char key[SP_SET_MAX_KEY_SIZE];
-} set_element;
-
 static const dshash_parameters params_hashset = {
-        .key_size = SP_SET_MAX_KEY_SIZE,
-        .entry_size = sizeof(set_element),
-        .compare_function = dshash_strcmp,
-        .hash_function = dshash_strhash,
-        .copy_function = dshash_strcpy
+        .key_size = sizeof(dss),
+        .entry_size = sizeof(dss),
+        .compare_function = dshash_dss_cmp,
+        .hash_function = dshash_dss_hash,
+        .copy_function = dshash_dss_copy
 };
-
-#define SP_GETARG_SETELEM(n)  text_to_cstring(PG_GETARG_TEXT_PP((n)))
 
 PG_FUNCTION_INFO_V1(sadd);
 Datum
@@ -600,7 +721,7 @@ sadd(PG_FUNCTION_ARGS)
     spat_attach_shmem();
 
     dsa_pointer dsa_key =  SP_GETARG_KEY_DSA(0);
-    char *elemstr = SP_GETARG_SETELEM(1);
+    dss elem_dss = PG_GETARG_DSS(1);
 
     /* Insert/find the set in the global hash table */
     bool dbentryfound;
@@ -623,15 +744,16 @@ sadd(PG_FUNCTION_ARGS)
         htab = dshash_attach(g_dsa, &params_hashset, htabhandl, NULL);
     }
 
-    /* Insert the value into the set */
+    /* Insert the dss element into the set */
     bool setelementfound;
-    set_element *elem = dshash_find_or_insert(htab, elemstr, &setelementfound);
+    dss *elem = dshash_find_or_insert(htab, &elem_dss, &setelementfound);  // Using dss as element
     if (!setelementfound)
         dbentry->value.set.size++;
 
-    elog(DEBUG1, "key=%s\tdbentryfound=%d\tsetelementfound=%d\tcard=%d",
+    elog(DEBUG1, "sadd: key=%s\tdbentryfound=%d\tsetelementfound=%d\tcard=%d",
          SP_DSA_KEY_TO_CSTRING(dsa_key), dbentryfound, setelementfound, dbentry->value.set.size);
 
+    /* Release locks */
     dshash_release_lock(htab, elem);
     dshash_detach(htab);
 
@@ -649,7 +771,8 @@ sismember(PG_FUNCTION_ARGS)
     text *key = PG_GETARG_TEXT_PP(0);
     Size keysz = VARSIZE_ANY(key);
     dsa_pointer dsa_key = dsa_copy_to(g_dsa, key, keysz);
-    char *elemstr = text_to_cstring(PG_GETARG_TEXT_PP(1));
+
+    dss elem_dss = PG_GETARG_DSS(1);
 
     bool result;
 
@@ -660,7 +783,7 @@ sismember(PG_FUNCTION_ARGS)
         dshash_table *htab = dshash_attach(g_dsa, &params_hashset, dbentry->value.set.hndl, NULL);
         dshash_release_lock(g_htab, dbentry);
 
-        set_element *elem = dshash_find(htab, elemstr, false);
+        dss *elem = dshash_find(htab, &elem_dss, false);
         if(elem) {
             dshash_release_lock(htab, elem);
             result = true;
@@ -690,7 +813,7 @@ srem(PG_FUNCTION_ARGS)
     spat_attach_shmem();
 
     dsa_pointer key = SP_GETARG_KEY_DSA(0);
-    char *elem      = SP_GETARG_SETELEM(1);
+    dss elem_dss = PG_GETARG_DSS(1);
 
     int32 result;
 
@@ -704,7 +827,7 @@ srem(PG_FUNCTION_ARGS)
         dshash_table *htab = dshash_attach(g_dsa, &params_hashset,
                                            dbentry->value.set.hndl, NULL);
 
-        bool deleted = dshash_delete_key(htab, elem);
+        bool deleted = dshash_delete_key(htab, &elem_dss);
 
         if (deleted)
             dbentry->value.set.size--;
@@ -756,4 +879,17 @@ scard(PG_FUNCTION_ARGS)
          PG_RETURN_INT32(result);
     else
         PG_RETURN_NULL();
+}
+
+PG_FUNCTION_INFO_V1(sinter);
+Datum
+sinter(PG_FUNCTION_ARGS) {
+    spat_attach_shmem();
+
+    dsa_pointer key1 = SP_GETARG_KEY_DSA(0);
+    dsa_pointer key2 = SP_GETARG_KEY_DSA(1);
+
+    spat_detach_shmem();
+
+
 }
