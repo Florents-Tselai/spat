@@ -41,6 +41,7 @@
 #include "utils/timestamp.h"
 #include "utils/datum.h"
 #include "utils/jsonb.h"
+#include "common/hashfn.h"
 
 
 PG_MODULE_MAGIC;
@@ -66,15 +67,116 @@ PG_MODULE_MAGIC;
 * as it satisfies both varlena, 8-byte int/float and 4-byte int/float
 */
 
+/* ---------------------------------------- DSS ---------------------------------------- */
 
-typedef enum valueType
+/*
+ * A Dynamicaly-Shared String (DSS) is a null-terminated char* stored in a DSA
+ */
+
+typedef struct dss {
+    dsa_pointer str; /* =VARDATA_ANY(txt) */
+    Size len; /* = strlen + 1 = VARSIZE_ANY_EXHDR(t) + 1 */
+} dss;
+
+
+static int
+dss_cmp_arg(const void *a, const void *b, size_t size, void *arg)
+{
+    dsa_area *dsa = (dsa_area *) arg;
+    const dss *dss_a = (const dss *) a;
+    const dss *dss_b = (const dss *) b;
+
+    /* Compare lengths first */
+    if (dss_a->len != dss_b->len)
+        return (dss_a->len < dss_b->len) ? -1 : 1;
+
+    /* Compare data byte-by-byte */
+    return memcmp(dsa_get_address(dsa, dss_a->str),
+                  dsa_get_address(dsa, dss_b->str),
+                  dss_a->len - 1); /* Exclude null terminator */
+}
+
+static dshash_hash
+dss_hash_arg(const void *key, size_t size, void *arg)
+{
+    dsa_area *dsa = (dsa_area *) arg;
+    const dss *dss_key = (const dss *) key;
+
+    /* Hash the key data (excluding null terminator) */
+    return tag_hash(dsa_get_address(dsa, dss_key->str), dss_key->len - 1);
+}
+
+static void
+dss_cpy_arg(void *dest, const void *src, size_t size, void *arg)
+{
+    dsa_area *dsa = (dsa_area *) arg;
+    dss *dss_dest = (dss *) dest;
+    const dss *dss_src = (const dss *) src;
+
+    /* Allocate memory in the destination DSS */
+    dss_dest->len = dss_src->len;
+    dss_dest->str = dsa_allocate(dsa, dss_src->len);
+
+    /* Copy the key data */
+    memcpy(dsa_get_address(dsa, dss_dest->str),
+           dsa_get_address(dsa, dss_src->str),
+           dss_src->len);
+}
+
+static dss dss_new_extended(dsa_area *dsa, const char *str, Size len)
+{
+    dss result;
+    result.str = dsa_allocate(dsa, len);
+    result.len = len;
+    memcpy(dsa_get_address(dsa, result.str), str, len);
+    return result;
+}
+
+static dss dss_new(dsa_area *dsa, const text *txt)
+{
+    dss result;
+
+    Size len = VARSIZE_ANY_EXHDR(txt) + 1;
+
+    result.str = dsa_allocate(dsa, len);
+    result.len = len;
+
+    /* Copy the text payload into the allocated memory */
+    char *dest = dsa_get_address(dsa, result.str);
+    memcpy(dest, VARDATA_ANY(txt), len - 1);
+
+    /* Null-terminate the string */
+    dest[len - 1] = '\0';
+
+    return result;
+}
+
+static text* dss_to_text(dsa_area *dsa, dss dss) {
+    Size data_len = dss.len - 1; /* Exclude null terminator */
+    text *result = (text *) palloc(data_len + VARHDRSZ);
+
+    /* Set the total size of the text object */
+    SET_VARSIZE(result, data_len + VARHDRSZ);
+
+    /* Copy the string data into the text structure */
+    memcpy(VARDATA(result), dsa_get_address(dsa, dss.str), data_len);
+
+    return result;
+}
+
+static void dss_free(dsa_area *dsa, dss *dss) {
+    dsa_free(dsa, dss->str);
+}
+
+typedef enum spValueType
 {
     SPVAL_INVALID,
     SPVAL_NULL, /* not in DB */
-    SPVAL_STRING
-} valueType;
+    SPVAL_STRING,
+    SPVAL_SET
+} spValueType;
 
-static const char* typename(valueType t) {
+static const char* spTypeName(spValueType t) {
     switch (t) {
         case SPVAL_STRING:
             return "string";
@@ -82,17 +184,24 @@ static const char* typename(valueType t) {
             return "invalid";
         case SPVAL_NULL:
             return "null";
+        case SPVAL_SET:
+            return "set";
     }
 }
 
 /* In-memory representation of an SPValue */
 typedef struct SPValue
 {
-    valueType valtyp;
+    spValueType typ;
 
     union
     {
         struct varlena* varlena_val;
+        struct
+        {
+            uint32 size;
+        } set;
+
     } value;
 } SPValue;
 
@@ -100,10 +209,12 @@ typedef struct SPValue
 #define SpInvalidValDatum PointerGetDatum(NULL)
 #define SpMaxTTL DT_NOEND
 
+typedef dshash_table_handle dshash_set_handle;
+
 typedef struct SpatDBEntry
 {
     /* -------------------- Key -------------------- */
-    dsa_pointer key; /* pointer to a text* allocated in dsa */
+    dss key; /* pointer to a text* allocated in dsa */
 
     /* -------------------- Metadata -------------------- */
 
@@ -111,15 +222,16 @@ typedef struct SpatDBEntry
 
     /* -------------------- Value -------------------- */
 
-    valueType valtyp;
+    spValueType valtyp;
 
     union
     {
-        struct
-        {
-            Size valsz;
-            dsa_pointer valptr;
-        } ref;
+        dss string;
+
+        struct {
+            dshash_set_handle  hndl;
+            uint32 size;
+        } set;
     } value;
 } SpatDBEntry;
 
@@ -147,17 +259,34 @@ static void spat_attach_shmem(void);
 
 /* ---------------------------------------- Global state ---------------------------------------- */
 
-static const dshash_parameters default_hash_params = {
-    .key_size = sizeof(dsa_pointer),
-    .entry_size = sizeof(SpatDBEntry),
-    .compare_function = dshash_memcmp,
-    .hash_function = dshash_memhash,
-    .copy_function = dshash_memcpy
-};
-
 static SpatDB* g_spat_db = NULL;
 static dsa_area* g_dsa = NULL;
 static dshash_table* g_htab = NULL;
+
+
+
+static int
+dss_cmp(const void *a, const void *b, size_t size, void *arg) {
+    return dss_cmp_arg(a, b, size, g_dsa);
+}
+
+static dshash_hash
+dss_hash(const void *key, size_t size, void *arg) {
+    return dss_hash_arg(key, size, g_dsa);
+}
+
+static void
+dss_copy(void *dest, const void *src, size_t size, void *arg) {
+    dss_cpy_arg(dest, src, size, g_dsa);
+}
+
+static const dshash_parameters default_hash_params = {
+    .key_size = sizeof(dss),
+    .entry_size = sizeof(SpatDBEntry),
+    .compare_function = dss_cmp,
+    .hash_function = dss_hash,
+    .copy_function = dss_copy
+};
 
 /* ---------------------------------------- Shared Memory Implementation ---------------------------------------- */
 
@@ -243,20 +372,9 @@ spat_detach_shmem(void) {
 
 /* ---------------------------------------- Commands Common ---------------------------------------- */
 
-dsa_pointer dsa_copy_to(dsa_area *dsa, void *val, Size valsz);
-
-dsa_pointer dsa_copy_to(dsa_area *dsa, void *val, Size valsz)
-{
-    dsa_pointer allocedptr = dsa_allocate0(dsa, valsz);
-    if (!DsaPointerIsValid(allocedptr))
-        elog(ERROR, "dsa_allocate0 failed");
-
-    memcpy(dsa_get_address(dsa, allocedptr), val, valsz);
-
-    return allocedptr;
-}
-
-#define DSA_POINTER_TO_LOCAL(p) dsa_get_address(g_dsa, (p))
+#define PG_GETARG_DSS(n) dss_new(g_dsa, PG_GETARG_TEXT_PP((n)))
+#define DSS_LEN(s) dsa_get_address(g_dsa, (s))->len
+#define DSS_TO_TEXT(s) dss_to_text(g_dsa, (s))
 
 /* ---------------------------------------- Commands Implementation ---------------------------------------- */
 
@@ -279,13 +397,20 @@ spvalue_out(PG_FUNCTION_ARGS)
     initStringInfo(&output);
 
     /* Convert spval back to a string based on its type */
-    switch (input->valtyp)
+    switch (input->typ)
     {
-    case SPVAL_STRING:
-        appendStringInfoString(&output, text_to_cstring(input->value.varlena_val));
-        break;
-    default:
-        elog(ERROR, "Unknown spval type");
+        case SPVAL_STRING:
+            appendStringInfoString(&output, text_to_cstring(input->value.varlena_val));
+            break;
+        case SPVAL_INVALID:
+            appendStringInfoString(&output, "invalid");
+            break;
+        case SPVAL_NULL:
+            appendStringInfoString(&output, "null");
+            break;
+        case SPVAL_SET:
+            appendStringInfo(&output, "set (%d)", input->value.set.size);
+            break;
     }
 
     PG_RETURN_CSTRING(output.data);
@@ -321,21 +446,30 @@ spat_db_created_at(PG_FUNCTION_ARGS)
 
 SPValue* makeSpvalFromEntry(dsa_area* dsa, SpatDBEntry* entry)
 {
-    SPValue* result;
+    SPValue *result = (SPValue*) palloc(sizeof(SPValue));
 
-    Assert(entry->valtyp == SPVAL_STRING);
+    switch (entry->valtyp) {
+        case SPVAL_INVALID:
+            break;
+        case SPVAL_NULL:
+            break;
+        case SPVAL_STRING: {
+            Size realSize = entry->value.string.len;
 
-    result = (SPValue*)palloc(sizeof(SPValue));
+            text* text_result = (text*)palloc(realSize);
+            SET_VARSIZE(text_result, realSize);
 
-    Size realSize = entry->value.ref.valsz;
+            memcpy(text_result, dsa_get_address(dsa, entry->value.string.str), realSize);
 
-    text* text_result = (text*)palloc(realSize);
-    SET_VARSIZE(text_result, realSize);
-
-    memcpy(text_result, dsa_get_address(dsa, entry->value.ref.valptr), realSize);
-
-    result->valtyp = SPVAL_STRING;
-    result->value.varlena_val = text_result;
+            result->typ = SPVAL_STRING;
+            result->value.varlena_val = text_result;
+            break;
+        }
+        case SPVAL_SET:
+            result->typ = SPVAL_SET;
+            result->value.set.size = entry->value.set.size;
+            break;
+    }
 
     return result;
 }
@@ -348,8 +482,7 @@ spset_generic(PG_FUNCTION_ARGS)
     spat_attach_shmem();
 
     /* Input */
-    text* key = PG_GETARG_TEXT_PP(0);
-    Size keysz = VARSIZE_ANY(key);
+    dss key = PG_GETARG_DSS(0);
     Datum value = PG_GETARG_DATUM(1);
     Interval* ex = PG_ARGISNULL(2) ? NULL : PG_GETARG_INTERVAL_P(2);
     bool nx = PG_ARGISNULL(3) ? NULL : PG_GETARG_BOOL(3);
@@ -360,9 +493,6 @@ spset_generic(PG_FUNCTION_ARGS)
     Oid valueTypeOid;
     bool valueTypByVal;
     int16 valueTypLen;
-
-    /* Processing */
-    dsa_pointer dsa_key= dsa_copy_to(g_dsa, key, keysz);
 
     bool exclusive = false; /* TODO: This depends on the xx / nx */
     bool found;
@@ -381,10 +511,9 @@ spset_generic(PG_FUNCTION_ARGS)
     Assert(valueTypeOid == TEXTOID);
 
     /* Insert the key */
-    entry = dshash_find_or_insert(g_htab, dsa_get_address(g_dsa, dsa_key), &found);
+    entry = dshash_find_or_insert(g_htab, &key, &found);
     if (entry == NULL)
     {
-        dsa_free(g_dsa, dsa_key);
         elog(ERROR, "dshash_find_or_insert failed, probably out-of-memory");
     }
 
@@ -398,9 +527,9 @@ spset_generic(PG_FUNCTION_ARGS)
     }
 
     entry->valtyp = SPVAL_STRING;
-    entry->value.ref.valsz = VARSIZE_ANY(value);
-    entry->value.ref.valptr = dsa_allocate(g_dsa, VARSIZE_ANY(value));
-    memcpy(dsa_get_address(g_dsa, entry->value.ref.valptr), DatumGetPointer(value), VARSIZE_ANY(value));
+    entry->value.string.len = VARSIZE_ANY(value);
+    entry->value.string.str = dsa_allocate(g_dsa, VARSIZE_ANY(value));
+    memcpy(dsa_get_address(g_dsa, entry->value.string.str), DatumGetPointer(value), VARSIZE_ANY(value));
 
     /* Prepare the SPvalue to echo / return */
     SPValue* result = makeSpvalFromEntry(g_dsa, entry);
@@ -422,11 +551,9 @@ spget(PG_FUNCTION_ARGS)
 
     /* Begin processing */
     spat_attach_shmem();
-    text* key = PG_GETARG_TEXT_PP(0);
-    Size keysz = VARSIZE_ANY(key);
-    dsa_pointer dsa_key= dsa_copy_to(g_dsa, key, keysz);
+    dss key = PG_GETARG_DSS(0);
 
-    SpatDBEntry *entry = dshash_find(g_htab, dsa_get_address(g_dsa, dsa_key), false);
+    SpatDBEntry *entry = dshash_find(g_htab, &key, false);
     if (entry) {
         found = true;
         result = makeSpvalFromEntry(g_dsa, entry);
@@ -447,24 +574,22 @@ PG_FUNCTION_INFO_V1(sptype);
 Datum
 sptype(PG_FUNCTION_ARGS)
 {
-    valueType result = SPVAL_NULL;
+    spValueType result = SPVAL_NULL;
 
     /* Begin processing */
     spat_attach_shmem();
-    text* key = PG_GETARG_TEXT_PP(0);
-    Size keysz = VARSIZE_ANY(key);
-    dsa_pointer dsa_key= dsa_copy_to(g_dsa, key, keysz);
+    dss key = PG_GETARG_DSS(0);
 
-    SpatDBEntry *entry = dshash_find(g_htab, dsa_get_address(g_dsa, dsa_key), false);
+    SpatDBEntry *entry = dshash_find(g_htab, &key, false);
     if (entry) {
         result = entry->valtyp;
+        elog(DEBUG1, "valtyp=%d", entry->valtyp);
         dshash_release_lock(g_htab, entry);
-        Assert(result == SPVAL_STRING);
     }
 
     spat_detach_shmem();
 
-    PG_RETURN_TEXT_P(cstring_to_text(typename(result)));
+    PG_RETURN_TEXT_P(cstring_to_text(spTypeName(result)));
 
 }
 
@@ -475,10 +600,9 @@ del(PG_FUNCTION_ARGS)
 {
     spat_attach_shmem();
 
-    text* key = PG_GETARG_TEXT_PP(0);
-    dsa_pointer dsa_key = dsa_copy_to(g_dsa, key, VARSIZE_ANY(key));
+    dss key = PG_GETARG_DSS(0);
 
-    bool found = dshash_delete_key(g_htab, DSA_POINTER_TO_LOCAL(dsa_key));
+    bool found = dshash_delete_key(g_htab, &key);
 
     spat_detach_shmem();
     PG_RETURN_BOOL(found);
@@ -491,15 +615,14 @@ getexpireat(PG_FUNCTION_ARGS)
 {
     spat_attach_shmem();
 
-    text *key = PG_GETARG_TEXT_PP(0);
-    Size keysz = VARSIZE_ANY(key);
-    dsa_pointer dsa_key = dsa_copy_to(g_dsa, key, keysz);
+    dss key = PG_GETARG_DSS(0);
+
 
     /* Output */
     TimestampTz result;
 
     bool found;
-    SpatDBEntry *entry = dshash_find(g_htab, DSA_POINTER_TO_LOCAL(dsa_key), false);
+    SpatDBEntry *entry = dshash_find(g_htab, &key, false);
     if (!entry)
     {
         found = false;
@@ -550,4 +673,202 @@ Datum sp_db_size_bytes(PG_FUNCTION_ARGS)
     result = dsa_get_total_size(g_dsa);
     spat_detach_shmem();
     PG_RETURN_INT64(result);
+}
+
+PG_FUNCTION_INFO_V1(dss_echo);
+
+Datum
+dss_echo(PG_FUNCTION_ARGS)
+{
+    spat_attach_shmem();
+    dss arg0 = PG_GETARG_DSS(0);
+    text *result = DSS_TO_TEXT(arg0);
+
+    spat_detach_shmem();
+
+    PG_RETURN_TEXT_P(result);
+}
+
+
+/* ---------------------------------------- SETS ---------------------------------------- */
+
+static const dshash_parameters params_hashset = {
+        .key_size = sizeof(dss),
+        .entry_size = sizeof(dss),
+        .compare_function = dss_cmp,
+        .hash_function = dss_hash,
+        .copy_function = dss_copy
+};
+
+PG_FUNCTION_INFO_V1(sadd);
+Datum
+sadd(PG_FUNCTION_ARGS)
+{
+    spat_attach_shmem();
+
+    dss key = PG_GETARG_DSS(0);
+    dss elem_dss = PG_GETARG_DSS(1);
+
+    /* Insert/find the set in the global hash table */
+    bool dbentryfound;
+    dshash_table *htab;
+    dshash_table_handle htabhandl;
+
+    SpatDBEntry *dbentry = dshash_find_or_insert(g_htab, &key, &dbentryfound);
+
+    if (!dbentryfound) {
+        dbentry->valtyp = SPVAL_SET;
+        htab = dshash_create(g_dsa, &params_hashset, NULL);
+        htabhandl = dshash_get_hash_table_handle(htab);
+        dbentry->value.set.hndl = htabhandl;
+        dbentry->value.set.size = 0;
+    } else {
+        /* Existing entry */
+        Assert(dbentry->valtyp == SPVAL_SET);
+        htabhandl = dbentry->value.set.hndl;
+
+        htab = dshash_attach(g_dsa, &params_hashset, htabhandl, NULL);
+    }
+
+    /* Insert the dss element into the set */
+    bool setelementfound;
+    dss *elem = dshash_find_or_insert(htab, &elem_dss, &setelementfound);  // Using dss as element
+    if (!setelementfound)
+        dbentry->value.set.size++;
+
+    elog(DEBUG1, "sadd: key=%s\tdbentryfound=%d\tsetelementfound=%d\tcard=%d", VARDATA_ANY(DSS_TO_TEXT(key)), dbentryfound, setelementfound, dbentry->value.set.size);
+
+    /* Release locks */
+    dshash_release_lock(htab, elem);
+    dshash_detach(htab);
+
+    dshash_release_lock(g_htab, dbentry);
+
+    spat_detach_shmem();
+    PG_RETURN_VOID();
+}
+
+PG_FUNCTION_INFO_V1(sismember);
+Datum
+sismember(PG_FUNCTION_ARGS)
+{
+    spat_attach_shmem();
+    dss key = PG_GETARG_DSS(0);
+
+    dss elem_dss = PG_GETARG_DSS(1);
+
+    bool result;
+
+    SpatDBEntry *dbentry = dshash_find(g_htab, &key, false);
+    if (dbentry) {
+        /* Existing entry */
+        Assert(dbentry->valtyp == SPVAL_SET);
+        dshash_table *htab = dshash_attach(g_dsa, &params_hashset, dbentry->value.set.hndl, NULL);
+        dshash_release_lock(g_htab, dbentry);
+
+        dss *elem = dshash_find(htab, &elem_dss, false);
+        if(elem) {
+            dshash_release_lock(htab, elem);
+            result = true;
+        } else {
+            result = false;
+        }
+        dshash_detach(htab);
+    }
+    else {
+        result = false;
+    }
+
+    spat_detach_shmem();
+    PG_RETURN_BOOL(result);
+}
+
+/*
+ * Remove the specified members from the set stored at key.
+ * Specified members that are not a member of this set are ignored.
+ * If key does not exist, it is treated as an empty set and this command returns 0.
+ * An error is returned when the value stored at key is not a set.
+ */
+PG_FUNCTION_INFO_V1(srem);
+Datum
+srem(PG_FUNCTION_ARGS)
+{
+    spat_attach_shmem();
+
+    dss key = PG_GETARG_DSS(0);
+    dss elem_dss = PG_GETARG_DSS(1);
+
+    int32 result;
+
+    SpatDBEntry *dbentry = dshash_find(g_htab, &key, true);
+    if (dbentry) {
+        /* Existing entry */
+        Assert(dbentry->valtyp == SPVAL_SET);
+
+        dshash_table *htab = dshash_attach(g_dsa, &params_hashset,
+                                           dbentry->value.set.hndl, NULL);
+
+        bool deleted = dshash_delete_key(htab, &elem_dss);
+
+        if (deleted)
+            dbentry->value.set.size--;
+
+        result = deleted ? 1 : 0;
+
+        dshash_detach(htab);
+        dshash_release_lock(g_htab, dbentry);
+    }
+    else {
+        result = 0;
+    }
+
+    spat_detach_shmem();
+    PG_RETURN_BOOL(result);
+}
+
+PG_FUNCTION_INFO_V1(scard);
+Datum
+scard(PG_FUNCTION_ARGS)
+{
+    spat_attach_shmem();
+
+    /* Input key and value */
+    dss key = PG_GETARG_DSS(0);
+
+    uint32 result;
+    bool isaset;
+    SpatDBEntry *dbentry =  dshash_find(g_htab, &key, false);
+
+    if (dbentry) {
+        if (dbentry->valtyp == SPVAL_SET) {
+            isaset = true;
+            result = dbentry->value.set.size;
+        }
+        else {
+            isaset = false;
+        }
+        dshash_release_lock(g_htab, dbentry);
+    }
+    else {
+        isaset = false;
+    }
+    spat_detach_shmem();
+
+    if (isaset)
+         PG_RETURN_INT32(result);
+    else
+        PG_RETURN_NULL();
+}
+
+PG_FUNCTION_INFO_V1(sinter);
+Datum
+sinter(PG_FUNCTION_ARGS) {
+    spat_attach_shmem();
+
+    dss key1 = PG_GETARG_DSS(0);
+    dss key2 = PG_GETARG_DSS(2);
+
+    spat_detach_shmem();
+
+
 }

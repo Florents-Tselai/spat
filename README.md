@@ -12,46 +12,79 @@ your caching layer within your SQL queries.
 
 ## Usage 
 
-`SSET(key, value, ttl interval, nx bool, xx bool) → spval`
+### Strings
 
-Set key to hold the value. If key already holds a value, it is overwritten, regardless of its type.
+`SPSET(key, value[, echo bool, ttl interval]) → spval`
+
+Set key to hold the value. 
+If key already holds a value, it is overwritten, regardless of its type.
 Any previous time to live associated with the key is discarded on successful SET operation.
-`ttl` sets the TTL interval. 
-`nx` only set the key if it does not already exist.
-`xx` only set the key if already exists.
-Returns the value.
+The optional `ttl` sets the TTL interval.
+Returns the value if `echo` is set. If not (the default), the function returns NULL.
 
-`SP_DB_SIZE() → integer`
+`SPGET(key) → text`
 
-Returns the current number of entries in the database
+Get the value of key. 
+If the key does not exist NULL is returned. 
+An error is returned if the value stored at key is not a string, because GET only handles string values.
+
+### Sets
+
+`SADD(key, member) → int`
+
+Add the specified members to the set stored at key. 
+Specified members that are already a member of this set are ignored. 
+If key does not exist, a new set is created before adding the specified members.
+Returns the number of elements that were added to the set, not including all the elements already present in the set.
+An error is returned when the value stored at key is not a set
+
+`SISMEMBER(key, member) → bool`
+
+Returns if `member` is a member of the set stored at `key`.
+
+`SREM(key, member) → int`
+
+Remove the specified members from the set stored at key. 
+Specified members that are not a member of this set are ignored. 
+If key does not exist, it is treated as an empty set and this command returns 0.
+Returns the number of members that were removed from the set, not including non existing members.
+An error is returned when the value stored at key is not a set.
+
+`SCARD(key) → int`
+
+Returns the set cardinality (number of elements) of the set stored at key,
+or 0 if the key does not exist.
+
+### Generic
+
+`SPTYPE(key) → text`
+
+Returns the string representation of the type of the value stored at key. 
+The different types that can be returned are: string, list, set, zset, hash and stream.
+Returns `NULL` when key doesn't exist.
 
 `DEL(key) → boolean`
 
-Remove an entry by key.  Returns true if the key was found and the corresponding entry was removed.
-
-`SCAN() → setof text`
-
-Iterates over the key names in the database
-
-`PEXPIRETIME(key) → timestamptz`
-
-Returns the expiration timestamp of a key 
+Remove an entry by key. 
+Returns true if the key was found and the corresponding entry was removed.
 
 `TTL(key) → interval`
 
 Returns the TTL interval of a key
 
-`PERSIST(key)`
+`GETEXPIREAT(key) → timestamptz`
 
-Removes the expiration time of a key
+Shorthand for `GETEXPIREAT(key) - NOW()`
 
-`SEXISTS(key) → bool`
+`SP_DB_NITEMS() → integer`
 
-Determines whether a key exists
+Returns the current number of entries in the database.
 
-`SCOPY(key, key)`
+`SP_DB_SIZE_BYTES() → bigint`
 
-Copies the value of a key to a new key
+`SP_DB_SIZE() → text`
+
+Size of the database in bytes and in human-friendly text.
 
 ### Multiple Databases 
 
@@ -85,13 +118,14 @@ SET spat.db = 'spat-default';
 
 ## Configuration
 
-To completely disable disk access 
-in Postgres (including writes for checkpointing, WAL flushing, etc.), 
-you would need to configure it in a way that ensures all operations are kept in memory.
+You can't just turn Postgres into an in-memory database.
+But maybe, just maybe, you can get close enough by configuring it accordingly.
 
-You can get close to that if you tweak its configuration
+The first step would be to use `PGDATA=/dev/shm` or other similar memory-backed filesystem.
+Below are a few more ideas in that direction. 
 
-Use `PGDATA=/dev/shm` or other similar memory-backed filesystem.
+<details>
+<summary>Sample Configuration</summary>
 
 ```sql
 -- Disable Logging
@@ -129,6 +163,9 @@ ALTER SYSTEM SET stats_temp_directory = '/dev/shm';
 ALTER SYSTEM SET bgwriter_lru_maxpages = 0;
 ALTER SYSTEM SET bgwriter_delay = '10min'; -- Delay any operations
 ```
+
+</details>
+
 ## FAQ 
 
 #### What's the performance of this ?
@@ -147,3 +184,8 @@ Spat relies on the two following features of Postgres
 
 - PG10 Introduced dynamic shared memory areas (DSA) in [13df76a](https://github.com/postgres/postgres/commit/13df76a)
 - PG17 Introduced the dynamic shared memory registry in [8b2bcf3](https://github.com/postgres/postgres/commit/8b2bcf3)
+
+Internally it stores its data in a `dshash`: 
+this is an open hashing hash table, with a linked list at each table entry.  
+It supports dynamic resizing, as required to prevent the linked lists from growing too long on average.  
+Currently, only growing is supported: the hash table never becomes smaller.
