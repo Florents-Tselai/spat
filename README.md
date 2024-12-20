@@ -8,10 +8,10 @@ The data model is key-value.
 Keys are strings, but values can be strings, lists, sets, hashes or sorted sets.
 
 With **spat**:
-- Tou don't need to maintain an external caching server.
-- You can access and CRUD your cache within your SQL queries.
-- You can express powerful logic by using data structures like lists and sets
+- Tou don't need to maintain an external caching server. This greatly reduces complexity.
+- You can express powerful logic by embedding data structures like lists and sets
 in your SQL queries.
+- You can reduce your infrastructure costs by reusing server resources.
 
 ```sql
 SELECT SPSET('key', 'value');
