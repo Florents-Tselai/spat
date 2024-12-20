@@ -81,6 +81,24 @@ An error is returned when the value stored at key is not a set.
 Returns the set cardinality (number of elements) of the set stored at key,
 or 0 if the key does not exist.
 
+### Lists
+
+`LPUSH(key, element) → int`
+
+Insert all the specified values at the head of the list stored at key. 
+If key does not exist, it is created as empty list before performing the push operations. 
+Returns the length of the list after the push operation.
+When key holds a value that is not a list, an error is returned.
+
+`LPOP(key, element) → text`
+
+Removes and returns the first elements of the list stored at key.
+Returns NULL if the key does not exist.
+
+`LLEN(key) → int`
+
+Returns the length of the list stored at key. If key does not exist, it is interpreted as an empty list and 0 is returned. An error is returned when the value stored at key is not a list.
+
 ### Generic
 
 `SPTYPE(key) → text`
@@ -193,16 +211,6 @@ ALTER SYSTEM SET bgwriter_delay = '10min'; -- Delay any operations
 </details>
 
 ## FAQ 
-
-#### What's the performance of this ?
-
-I have no idea.
-
-#### What about persistence ?
-
-In databases persistence is the "D"urability in ACID.
-Postgres occasionally flushes its WAL on disk,
-but you can disable this with something like 
 
 ## Background
 
