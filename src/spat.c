@@ -187,10 +187,16 @@ typedef struct SPValue
     union
     {
         struct varlena* varlena_val;
+
         struct
         {
             uint32 size;
         } set;
+
+        struct
+        {
+            uint32 size;
+        } list;
 
     } value;
 } SPValue;
@@ -201,12 +207,8 @@ typedef struct SPValue
 
 typedef dshash_table_handle dshash_set_handle;
 
-typedef struct list_element {
-    dss data;
-
-    dsa_pointer prev;
-    dsa_pointer next;
-} list_element;
+struct list_element;
+typedef struct list_element list_element;
 
 typedef struct SpatDBEntry
 {
@@ -266,8 +268,6 @@ static void spat_attach_shmem(void);
 static SpatDB* g_spat_db = NULL;
 static dsa_area* g_dsa = NULL;
 static dshash_table* g_htab = NULL;
-
-
 
 static int
 dss_cmp(const void *a, const void *b, size_t size, void *arg) {
@@ -379,6 +379,7 @@ spat_detach_shmem(void) {
 #define PG_GETARG_DSS(n) dss_new(g_dsa, PG_GETARG_TEXT_PP((n)))
 #define DSS_LEN(s) dsa_get_address(g_dsa, (s))->len
 #define DSS_TO_TEXT(s) dss_to_text(g_dsa, (s))
+#define PG_RETURN_DSS(s) PG_RETURN_POINTER(DSS_TO_TEXT(s))
 
 /* ---------------------------------------- Commands Implementation ---------------------------------------- */
 
@@ -415,6 +416,9 @@ spvalue_out(PG_FUNCTION_ARGS)
         case SPVAL_SET:
             appendStringInfo(&output, "set (%d)", input->value.set.size);
             break;
+        case SPVAL_LIST:
+            appendStringInfo(&output, "list (%d)", input->value.list.size);
+            break;
     }
 
     PG_RETURN_CSTRING(output.data);
@@ -448,13 +452,12 @@ spat_db_created_at(PG_FUNCTION_ARGS)
     PG_RETURN_TIMESTAMPTZ(result);
 }
 
-SPValue* makeSpvalFromEntry(dsa_area* dsa, SpatDBEntry* entry)
+static SPValue* makeSpvalFromEntry(dsa_area* dsa, SpatDBEntry* entry)
 {
     SPValue *result = (SPValue*) palloc(sizeof(SPValue));
 
     switch (entry->valtyp) {
         case SPVAL_INVALID:
-            break;
         case SPVAL_NULL:
             break;
         case SPVAL_STRING: {
@@ -472,6 +475,10 @@ SPValue* makeSpvalFromEntry(dsa_area* dsa, SpatDBEntry* entry)
         case SPVAL_SET:
             result->typ = SPVAL_SET;
             result->value.set.size = entry->value.set.size;
+            break;
+        case SPVAL_LIST:
+            result->typ = SPVAL_LIST;
+            result->value.list.size = entry->value.list.size;
             break;
     }
 
@@ -879,6 +886,13 @@ sinter(PG_FUNCTION_ARGS) {
 
 /* ---------------------------------------- LISTS ---------------------------------------- */
 
+struct list_element {
+    dss data;
+
+    dsa_pointer prev;
+    dsa_pointer next;
+};
+
 #define LIST_NIL InvalidDsaPointer
 
 PG_FUNCTION_INFO_V1(lpush);
@@ -886,7 +900,7 @@ Datum
 lpush(PG_FUNCTION_ARGS) {
     spat_attach_shmem();
 
-    /* Retrieve the key and the element arguments */
+    /* Retrieve key and element arguments */
     dss key = PG_GETARG_DSS(0);
     dss elem = PG_GETARG_DSS(1);
 
@@ -895,52 +909,68 @@ lpush(PG_FUNCTION_ARGS) {
     SpatDBEntry *dbentry = dshash_find_or_insert(g_htab, &key, &dbentryfound);
 
     if (!dbentryfound) {
-        /* Initialize the list if it does not exist */
+        /* New list initialization */
         dbentry->valtyp = SPVAL_LIST;
         dbentry->value.list.size = 1;
 
-        /* Allocate a new list element in the DSA */
+        /* Allocate the first element */
         dsa_pointer new_elem_ptr = dsa_allocate(g_dsa, sizeof(list_element));
         list_element *new_elem = dsa_get_address(g_dsa, new_elem_ptr);
 
-        /* Set the data for the new element */
+        /* Set the element data */
         new_elem->data = elem;
-        new_elem->prev = LIST_NIL; /* No previous element */
-        new_elem->next = LIST_NIL; /* No next element */
+        new_elem->prev = InvalidDsaPointer;
+        new_elem->next = InvalidDsaPointer;
 
-        /* Point head and tail to the new element */
+        /* Initialize head and tail */
         dbentry->value.list.head = new_elem_ptr;
         dbentry->value.list.tail = new_elem_ptr;
+    } else {
+        /* Existing list handling */
+        if (dbentry->value.list.size == 0) {
+            /* Reinitializing an emptied list */
+            dsa_pointer new_elem_ptr = dsa_allocate(g_dsa, sizeof(list_element));
+            list_element *new_elem = dsa_get_address(g_dsa, new_elem_ptr);
 
-    }
-    else {
-        /* List already exists: Insert at the head of the list */
-        Assert(dbentry->valtyp == SPVAL_LIST);
+            /* Set the element data */
+            new_elem->data = elem;
+            new_elem->prev = InvalidDsaPointer;
+            new_elem->next = InvalidDsaPointer;
 
-        /* Allocate a new list element in the DSA */
-        dsa_pointer new_elem_ptr = dsa_allocate(g_dsa, sizeof(list_element));
-        list_element *new_elem = dsa_get_address(g_dsa, new_elem_ptr);
+            /* Reinitialize head and tail */
+            dbentry->value.list.head = new_elem_ptr;
+            dbentry->value.list.tail = new_elem_ptr;
 
-        /* Set the data for the new element */
-        new_elem->data = elem;
+            /* Reset the size */
+            dbentry->value.list.size = 1;
+        } else {
+            /* Normal LPUSH to the head of the list */
+            dsa_pointer head_ptr = dbentry->value.list.head;
+            dsa_pointer new_elem_ptr = dsa_allocate(g_dsa, sizeof(list_element));
+            list_element *new_elem = dsa_get_address(g_dsa, new_elem_ptr);
 
-        /* Update pointers to insert the new element at the head */
-        new_elem->prev = LIST_NIL; /* No previous element since it's the new head */
-        new_elem->next = dbentry->value.list.head; /* Point to the current head */
+            /* Set the new element's data */
+            new_elem->data = elem;
 
-        /* Update the old head's previous pointer */
-        list_element *old_head = dsa_get_address(g_dsa, dbentry->value.list.head);
-        old_head->prev = new_elem_ptr;
+            /* Link the new element to the existing head */
+            new_elem->next = head_ptr;
+            new_elem->prev = InvalidDsaPointer;
 
-        /* Update the list head pointer to the new element */
-        dbentry->value.list.head = new_elem_ptr;
+            /* Update the existing head's prev pointer */
+            list_element *head_elem = dsa_get_address(g_dsa, head_ptr);
+            head_elem->prev = new_elem_ptr;
 
-        /* Increment the list size */
-        dbentry->value.list.size++;
+            /* Update the list's head pointer */
+            dbentry->value.list.head = new_elem_ptr;
+
+            /* Increment the size */
+            dbentry->value.list.size++;
+        }
     }
 
     dshash_release_lock(g_htab, dbentry);
     spat_detach_shmem();
+
     PG_RETURN_VOID();
 }
 
@@ -983,7 +1013,7 @@ lpop(PG_FUNCTION_ARGS) {
     bool dbentryfound;
     SpatDBEntry *dbentry = dshash_find_or_insert(g_htab, &key, &dbentryfound);
 
-    /* If the list does not exist, release the lock and return NULL */
+    /* If the list does not exist or is empty, release the lock and return NULL */
     if (!dbentryfound || dbentry->valtyp != SPVAL_LIST || dbentry->value.list.size == 0) {
         dshash_release_lock(g_htab, dbentry);
         spat_detach_shmem();
@@ -995,8 +1025,7 @@ lpop(PG_FUNCTION_ARGS) {
     list_element *head_elem = dsa_get_address(g_dsa, head_ptr);
 
     /* Prepare the return value (head element data) */
-    text *result = cstring_to_text_with_len((char *) dsa_get_address(g_dsa, head_elem->data.str),
-                                            head_elem->data.len - 1);
+    text *result = DSS_TO_TEXT(head_elem->data);
 
     /* Update the list to remove the head */
     dbentry->value.list.head = head_elem->next;
@@ -1023,6 +1052,68 @@ lpop(PG_FUNCTION_ARGS) {
 
     /* Return the result */
     PG_RETURN_TEXT_P(result);
+}
+
+PG_FUNCTION_INFO_V1(rpush);
+Datum
+rpush(PG_FUNCTION_ARGS) {
+    spat_attach_shmem();
+
+    /* Retrieve the key and the element arguments */
+    dss key = PG_GETARG_DSS(0);
+    dss elem = PG_GETARG_DSS(1);
+
+    /* Insert/find the list in the global hash table */
+    bool dbentryfound;
+    SpatDBEntry *dbentry = dshash_find_or_insert(g_htab, &key, &dbentryfound);
+
+    if (!dbentryfound || dbentry->value.list.size == 0) {
+        /* If the list does not exist or is empty, initialize it */
+        dbentry->valtyp = SPVAL_LIST;
+
+
+        /* Allocate and initialize the new element */
+        dsa_pointer new_elem_ptr = dsa_allocate(g_dsa, sizeof(list_element));
+        list_element *new_elem = dsa_get_address(g_dsa, new_elem_ptr);
+
+        new_elem->data = elem;
+        new_elem->prev = InvalidDsaPointer;
+        new_elem->next = InvalidDsaPointer;
+
+        /* Set the new element as both the head and tail of the list */
+        dbentry->value.list.head = new_elem_ptr;
+        dbentry->value.list.tail = new_elem_ptr;
+
+        dbentry->value.list.size = 1;
+    } else {
+        /* Normal RPUSH to the tail of the list */
+        dsa_pointer tail_ptr = dbentry->value.list.tail;
+        dsa_pointer new_elem_ptr = dsa_allocate(g_dsa, sizeof(list_element));
+        list_element *new_elem = dsa_get_address(g_dsa, new_elem_ptr);
+
+        /* Set the new element's data */
+        new_elem->data = elem;
+
+        /* Link the new element to the existing tail */
+        new_elem->prev = tail_ptr;
+        new_elem->next = InvalidDsaPointer;
+
+        /* Update the existing tail's next pointer */
+        list_element *tail_elem = dsa_get_address(g_dsa, tail_ptr);
+        tail_elem->next = new_elem_ptr;
+
+        /* Update the list's tail pointer */
+        dbentry->value.list.tail = new_elem_ptr;
+
+        /* Increment the size */
+        dbentry->value.list.size++;
+    }
+
+    dshash_release_lock(g_htab, dbentry);
+    spat_detach_shmem();
+
+    /* Return success */
+    PG_RETURN_VOID();
 }
 
 PG_FUNCTION_INFO_V1(rpop);

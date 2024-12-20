@@ -14,6 +14,9 @@ PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
+# PostgreSQL does not allow declaration after statement, but we do
+override CFLAGS := $(filter-out -Wdeclaration-after-statement,$(CFLAGS))
+
 ######### DIST / RELEASE #########
 
 .PHONY: dist
