@@ -2,13 +2,16 @@
 
 [![Build Status](https://github.com/Florents-Tselai/spat/actions/workflows/build.yml/badge.svg)](https://github.com/Florents-Tselai/spat/actions)
 
-**spat** is a Redis-like in-memory data structure server embedded in Postgres. 
-The data model is key-value, but many different kinds of values are supported.
-
+**spat** is a Redis-like in-memory data structure server embedded in Postgres.
 Data is stored in Postgres shared memory.
-thus, you don't need an external caching service,
-while at the same time, you can easily manage 
-your caching layer within your SQL queries.
+The data model is key-value.
+Keys are strings, but values can be strings, lists, sets, hashes or sorted sets.
+
+With **spat**:
+- Tou don't need to maintain an external caching server.
+- You can access and CRUD your cache within your SQL queries.
+- You can express powerful logic by using data structures like lists and sets
+in your SQL queries.
 
 ```sql
 SELECT SPSET('key', 'value');
@@ -17,6 +20,9 @@ SELECT SPGET('key');
 SELECT SADD('set1', 'elem1', 'elem2');
 SELECT SISMEMBER('set1', 'elem1'); -- t
 
+SELECT LPUSH('list1', 'elem1');
+SELECT LPUSH('list1', 'elem2');
+SELECT LPOP('list1')
 ```
 
 ## Usage 
