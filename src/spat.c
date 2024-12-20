@@ -176,6 +176,8 @@ static const char* spTypeName(spValueType t) {
             return "null";
         case SPVAL_SET:
             return "set";
+        case SPVAL_LIST:
+            return "list";
     }
 }
 

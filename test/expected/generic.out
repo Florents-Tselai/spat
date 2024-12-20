@@ -387,6 +387,12 @@ SELECT LLEN('list1'); -- 2
     2
 (1 row)
 
+SELECT SPGET('list1');
+  spget   
+----------
+ list (2)
+(1 row)
+
 SELECT LPOP('list1'); -- elem2
  lpop  
 -------
@@ -433,5 +439,11 @@ SELECT LLEN('list1'); -- 0
  llen 
 ------
     0
+(1 row)
+
+SELECT SPGET('list1');
+  spget   
+----------
+ list (0)
 (1 row)
 
