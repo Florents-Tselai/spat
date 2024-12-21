@@ -10,12 +10,11 @@ TESTS = $(wildcard test/sql/*.sql)
 REGRESS = $(patsubst test/sql/%.sql,%,$(TESTS))
 REGRESS_OPTS = --inputdir=test --load-extension=$(EXTENSION)
 
+PG_CFLAGS = -Wno-unused-function -Wno-unused-variable -Wno-declaration-after-statement
+
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
-
-# PostgreSQL does not allow declaration after statement, but we do
-override CFLAGS := $(filter-out -Wdeclaration-after-statement,$(CFLAGS))
 
 ######### DIST / RELEASE #########
 
