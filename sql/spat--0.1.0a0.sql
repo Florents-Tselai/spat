@@ -83,6 +83,10 @@ CREATE FUNCTION rpop(text) RETURNS TEXT AS 'MODULE_PATHNAME' LANGUAGE C;
 
 CREATE FUNCTION llen(text) RETURNS INTEGER AS 'MODULE_PATHNAME' LANGUAGE C;
 
+/* -------------------- HASHES -------------------- */
+
+CREATE FUNCTION hset(text, text, text) RETURNS VOID AS 'MODULE_PATHNAME' LANGUAGE C;
+CREATE FUNCTION hget(text, text) RETURNS TEXT AS 'MODULE_PATHNAME' LANGUAGE C;
 
 /* -------------------- DSS -------------------- */
 
