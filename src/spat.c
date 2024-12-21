@@ -163,7 +163,8 @@ typedef enum spValueType
     SPVAL_NULL, /* not in DB */
     SPVAL_STRING,
     SPVAL_SET,
-    SPVAL_LIST
+    SPVAL_LIST,
+    SPVAL_HASH
 } spValueType;
 
 static const char* spTypeName(spValueType t) {
@@ -239,6 +240,11 @@ typedef struct SpatDBEntry
             dsa_pointer head;
             dsa_pointer tail;
         } list;
+
+        struct {
+            dshash_table_handle hndl;
+            uint32 size;
+        } hash;
 
     } value;
 } SpatDBEntry;
@@ -1122,4 +1128,102 @@ PG_FUNCTION_INFO_V1(rpop);
 Datum
 rpop(PG_FUNCTION_ARGS) {
 
+}
+
+/* ---------------------------------------- HASHES ---------------------------------------- */
+
+typedef struct sphash_entry {
+    dss field;
+    dss value;
+} sphash_entry;
+
+static const dshash_parameters sphash_params = {
+        .key_size = sizeof(dss),
+        .entry_size = sizeof(sphash_entry),
+        .compare_function = dss_cmp,
+        .hash_function = dss_hash,
+        .copy_function = dss_copy
+};
+
+PG_FUNCTION_INFO_V1(hset);
+Datum
+hset(PG_FUNCTION_ARGS) {
+    spat_attach_shmem();
+
+    dss key = PG_GETARG_DSS(0);
+    dss field = PG_GETARG_DSS(1);
+    dss value = PG_GETARG_DSS(2);
+
+    bool dbentryfound;
+
+    SpatDBEntry *dbentry = dshash_find_or_insert(g_htab, &key, &dbentryfound);
+    dshash_table *htab;
+
+    if (!dbentryfound) {
+        htab = dshash_create(g_dsa, &sphash_params, NULL);
+        dbentry->valtyp = SPVAL_HASH;
+        dbentry->value.hash.hndl = dshash_get_hash_table_handle(htab);
+        dbentry->value.hash.size = 0;
+
+    } else {
+        /* dbentryfound=true */
+        Assert(dbentry->valtyp == SPVAL_HASH);
+        htab = dshash_attach(g_dsa, &sphash_params, dbentry->value.hash.hndl, NULL);
+    }
+
+    bool sphsntry_found;
+    sphash_entry *sphsntry = dshash_find_or_insert(htab, &field, &sphsntry_found);
+
+    if (!sphsntry_found) {
+        sphsntry->field = field;
+        sphsntry->value = value;
+        dbentry->value.hash.size++;
+    } else {
+        sphsntry->value = value;
+    }
+
+    dshash_release_lock(htab, sphsntry);
+    dshash_detach(htab);
+
+    dshash_release_lock(g_htab, dbentry);
+    spat_detach_shmem();
+
+    PG_RETURN_VOID();
+}
+
+PG_FUNCTION_INFO_V1(hget);
+Datum
+hget(PG_FUNCTION_ARGS) {
+    spat_attach_shmem();
+
+    dss key = PG_GETARG_DSS(0);
+    dss field = PG_GETARG_DSS(1);
+
+    bool sphashentryfound = false;
+    text *result;
+
+    SpatDBEntry *dbentry = dshash_find(g_htab, &key, false);
+
+    if (dbentry && dbentry->valtyp == SPVAL_HASH) {
+        dshash_table *htab = dshash_attach(g_dsa, &sphash_params,
+                                           dbentry->value.hash.hndl, NULL);
+
+        sphash_entry *sphsntry = dshash_find(htab, &field, false);
+        if (sphsntry != NULL) {
+            result = DSS_TO_TEXT(sphsntry->value);
+            sphashentryfound = true;
+            dshash_release_lock(htab, sphsntry);
+        }
+
+        dshash_detach(htab);
+    }
+
+    if (dbentry)
+        dshash_release_lock(g_htab, dbentry);
+
+    spat_detach_shmem();
+    if (sphashentryfound)
+        PG_RETURN_TEXT_P(result);
+
+    PG_RETURN_NULL();
 }

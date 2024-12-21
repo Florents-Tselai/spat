@@ -4,13 +4,15 @@ EXTVERSION = v0.1.0a0
 MODULE_big = $(EXTENSION)
 OBJS = src/spat.o
 
-DATA = spat--0.1.0a0.sql
+DATA = sql/spat--0.1.0a0.sql
+
+PG_CFLAGS = -Wno-unused-function -Wno-unused-variable -Wno-declaration-after-statement
 
 TESTS = $(wildcard test/sql/*.sql)
 REGRESS = $(patsubst test/sql/%.sql,%,$(TESTS))
 REGRESS_OPTS = --inputdir=test --load-extension=$(EXTENSION)
 
-PG_CFLAGS = -Wno-unused-function -Wno-unused-variable -Wno-declaration-after-statement
+EXTRA_CLEAN = *.log dist gprof
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
