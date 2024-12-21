@@ -167,7 +167,7 @@ SET spat.db = 'spat-default';
 > [!NOTE]
 > Don't use this in production yet.
 
-> [!WARNING]
+> [!CAUTION]
 > This is far from ready for production.
 > There are definitely memory leak bugs in the code,
 > which could potentially mess-up your shared memory
