@@ -8,7 +8,7 @@ The data model is key-value.
 Keys are strings, but values can be strings, lists, sets, hashes or sorted sets.
 
 With **spat**:
-- Tou don't need to maintain an external caching server. This greatly reduces complexity.
+- You don't need to maintain an external caching server. This greatly reduces complexity.
 - You can express powerful logic by embedding data structures like lists and sets
 in your SQL queries.
 - You can reduce your infrastructure costs by reusing server resources.
@@ -105,12 +105,23 @@ Returns NULL if the key does not exist.
 
 Returns the length of the list stored at key. If key does not exist, it is interpreted as an empty list and 0 is returned. An error is returned when the value stored at key is not a list.
 
+### Hashes
+
+`HSET(key, field, value)`
+
+Sets the specified fields to their respective values in the hash stored at key.
+This command overwrites the values of specified fields that exist in the hash. If key doesn't exist, a new key holding a hash is created.
+
+`HGET(key, field) → text`
+
+Returns the value associated with field in the hash stored at key.
+
 ### Generic
 
 `SPTYPE(key) → text`
 
 Returns the string representation of the type of the value stored at key. 
-The different types that can be returned are: string, list, set, zset, hash and stream.
+The different types that can be returned are: string, list, set, and hash.
 Returns `NULL` when key doesn't exist.
 
 `DEL(key) → boolean`
@@ -136,7 +147,7 @@ Returns the current number of entries in the database.
 
 Size of the database in bytes and in human-friendly text.
 
-### Multiple Databases 
+### Multiple DBs 
 
 A spat database is just a segment of Postgres' memory addressable by a name.
 You can switch between different databases (namespaces really),
