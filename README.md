@@ -240,3 +240,5 @@ Internally it stores its data in a `dshash`:
 this is an open hashing hash table, with a linked list at each table entry.  
 It supports dynamic resizing, as required to prevent the linked lists from growing too long on average.  
 Currently, only growing is supported: the hash table never becomes smaller.
+
+<img src="test/bench/plot.png" width="50%"/>

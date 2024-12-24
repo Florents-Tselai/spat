@@ -2,10 +2,12 @@ EXTENSION = spat
 EXTVERSION = v0.1.0a0
 
 MODULE_big = $(EXTENSION)
-OBJS = src/spat.o
+OBJS = src/spat.o src/murmur3.o
+HEADERS = src/spat.h
 
 DATA = sql/spat--0.1.0a0.sql
 
+PG_CPPFLAGS = -DSPAT_MURMUR3=1
 PG_CFLAGS = -Wno-unused-function -Wno-unused-variable -Wno-declaration-after-statement
 
 TESTS = $(wildcard test/sql/*.sql)

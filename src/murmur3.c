@@ -9,7 +9,8 @@
 
 //-----------------------------------------------------------------------------
 // Platform-specific functions and macros
-#include <stdint.h>
+#include <stdlib.h>
+#include <printf.h>
 
 static inline uint32_t rotl32(uint32_t x, int8_t r)
 {
