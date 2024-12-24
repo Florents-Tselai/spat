@@ -164,6 +164,14 @@ Once done you can switch back to `spat-default`.
 SET spat.db = 'spat-default';
 ```
 
+## Installation
+
+To use the MurmurHash3 hasing algorithm instead of Postgres' default
+
+```shell
+make all install PG_CPPFLAGS=-DSPAT_MURMUR3=1
+```
+
 > [!NOTE]
 > Don't use this in production yet.
 
