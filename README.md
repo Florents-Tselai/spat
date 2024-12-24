@@ -164,6 +164,14 @@ Once done you can switch back to `spat-default`.
 SET spat.db = 'spat-default';
 ```
 
+## Installation
+
+To use the MurmurHash3 hasing algorithm instead of Postgres' default
+
+```shell
+make all install PG_CPPFLAGS=-DSPAT_MURMUR3=1
+```
+
 > [!NOTE]
 > Don't use this in production yet.
 
@@ -240,3 +248,5 @@ Internally it stores its data in a `dshash`:
 this is an open hashing hash table, with a linked list at each table entry.  
 It supports dynamic resizing, as required to prevent the linked lists from growing too long on average.  
 Currently, only growing is supported: the hash table never becomes smaller.
+
+<img src="test/bench/plot.png" width="50%"/>

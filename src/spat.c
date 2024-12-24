@@ -31,7 +31,7 @@
 #include "utils/datum.h"
 #include "utils/jsonb.h"
 #include "common/hashfn.h"
-
+#include "spat.h"
 
 PG_MODULE_MAGIC;
 
@@ -68,8 +68,8 @@ typedef struct dss {
 } dss;
 
 
-static int
-dss_cmp_arg(const void *a, const void *b, size_t size, void *arg)
+extern int dss_cmp_arg(const void *a, const void *b, size_t size, void *arg);
+int dss_cmp_arg(const void *a, const void *b, size_t size, void *arg)
 {
     dsa_area *dsa = (dsa_area *) arg;
     const dss *dss_a = (const dss *) a;
@@ -91,8 +91,11 @@ dss_hash_arg(const void *key, size_t size, void *arg)
     dsa_area *dsa = (dsa_area *) arg;
     const dss *dss_key = (const dss *) key;
 
-    /* Hash the key data (excluding null terminator) */
+#ifdef SPAT_MURMUR3
+    return hash_murmur3(dsa_get_address(dsa, dss_key->str), dss_key->len - 1, NULL);
+#else
     return tag_hash(dsa_get_address(dsa, dss_key->str), dss_key->len - 1);
+#endif
 }
 
 static void
