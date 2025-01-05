@@ -5,7 +5,7 @@
 **spat** is a Redis-like in-memory data structure server embedded in Postgres.
 Data is stored in Postgres shared memory.
 The data model is key-value.
-Keys are strings, but values can be strings, lists, sets, hashes or sorted sets.
+Keys are strings, but values can be strings, lists, sets or hashes.
 
 With **spat**:
 - You don't need to maintain an external caching server. This greatly reduces complexity.
@@ -166,11 +166,42 @@ SET spat.db = 'spat-default';
 
 ## Installation
 
-To use the MurmurHash3 hasing algorithm instead of Postgres' default
+Compile and install the extension (supports Postgres 13+)
+
+```sh
+cd /tmp
+git clone --branch v0.8.0 https://github.com/Florents-Tselai/spat.git
+cd spat
+make
+make install # may need sudo
+```
+You can also install it with [Docker](#docker), [Homebrew](#homebrew), [PGXN](#pgxn)
+
+### Docker
+
+```sh
+docker pull florents/spat:pg17
+# or
+docker pull florents/spat:0.1.0-pg17
+```
+
+### pgxn
+
+Install from the [PostgreSQL Extension Network](https://pgxn.org/dist/spat) with:
+
+```sh
+pgxn install spat
+```
+
+### MurmurHash3 
+
+To use the MurmurHash3 hasing algorithm instead of Postgres' default (`tag_hash`)
 
 ```shell
 make all install PG_CPPFLAGS=-DSPAT_MURMUR3=1
 ```
+
+### Docker
 
 > [!NOTE]
 > Don't use this in production yet.
@@ -232,7 +263,6 @@ ALTER SYSTEM SET stats_temp_directory = '/dev/shm';
 ALTER SYSTEM SET bgwriter_lru_maxpages = 0;
 ALTER SYSTEM SET bgwriter_delay = '10min'; -- Delay any operations
 ```
-
 </details>
 
 ## FAQ 
