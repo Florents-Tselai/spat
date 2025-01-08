@@ -1,10 +1,10 @@
 SET client_min_messages = ERROR;
 
-SELECT spat_db_name(); -- spat-default
+SELECT SPAT_DB_NAME(); -- spat-default
 -- switch to a new db
 SET spat.db = 'test-spat';
-SELECT spat_db_name(); -- test-spat
-SELECT spat_db_created_at() NOTNULL;
+SELECT SPAT_DB_NAME(); -- test-spat
+SELECT SPAT_DB_CREATED_AT() NOTNULL;
 
 -- switch back to the default to preserve my sanity when copy-pasting
 
@@ -13,40 +13,40 @@ SET spat.db = 'spat-default';
 /* -------------------- STRINGS / GENERIC -------------------- */
 
 -- SET - DELETE - SIZE
-SELECT spset('tkey1', 'dfgf');
-SELECT spset('tkeygdfg1', 'dfgf');
-SELECT spset('gdf', 'dfgf');
-SELECT spset('gfd', 'dfgf');
+SELECT SPSET('tkey1', 'dfgf');
+SELECT SPSET('tkeygdfg1', 'dfgf');
+SELECT SPSET('gdf', 'dfgf');
+SELECT SPSET('gfd', 'dfgf');
 
-SELECT sp_db_nitems(); --4
+SELECT SP_DB_NITEMS(); --4
 
 -- DELETE and inspect size
-SELECT del('tkey1'); --existing
-SELECT del('aaaa'); --not existing
-SELECT sp_db_nitems(); --3
-SELECT del('tkeygdfg1');
-SELECT del('gdf');
-SELECT del('gfd');
-SELECT sp_db_nitems(); --0
+SELECT DEL('tkey1'); --existing
+SELECT DEL('aaaa'); --not existing
+SELECT SP_DB_NITEMS(); --3
+SELECT DEL('tkeygdfg1');
+SELECT DEL('gdf');
+SELECT DEL('gfd');
+SELECT SP_DB_NITEMS(); --0
 
 -- SET / GET / DEL text
-SELECT spset('key1', 'value1');
-SELECT spget('key1');
+SELECT SPSET('key1', 'value1');
+SELECT SPGET('key1');
 
-SELECT del('key1');
-SELECT spget('key1');
+SELECT DEL('key1');
+SELECT SPGET('key1');
 
 -- TTL
 
 SELECT SPSET('expkey1', 'expvalue1', ttl=> '1 second');
-SELECT ttl('expkey1') < '1 second' ;
+SELECT TTL('expkey1') < '1 second' ;
 
 -- DB SIZE BYTES
-SELECT sp_db_size_bytes();
-SELECT sp_db_size();
+SELECT SP_DB_SIZE_BYTES();
+SELECT SP_DB_SIZE();
 
 -- sptype
-SELECT spset('key1', 'value1');
-SELECT sptype('key1');
+SELECT SPSET('key1', 'value1');
+SELECT SPTYPE('key1');
 
-SELECT sptype('gsdgdf');
+SELECT SPTYPE('gsdgdf');
