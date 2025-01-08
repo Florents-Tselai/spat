@@ -1,5 +1,5 @@
 SET client_min_messages = ERROR;
-SELECT spat_db_name(); -- spat-default
+SELECT SPAT_DB_NAME(); -- spat-default
  spat_db_name 
 --------------
  spat-default
@@ -7,13 +7,13 @@ SELECT spat_db_name(); -- spat-default
 
 -- switch to a new db
 SET spat.db = 'test-spat';
-SELECT spat_db_name(); -- test-spat
+SELECT SPAT_DB_NAME(); -- test-spat
  spat_db_name 
 --------------
  test-spat
 (1 row)
 
-SELECT spat_db_created_at() NOTNULL;
+SELECT SPAT_DB_CREATED_AT() NOTNULL;
  ?column? 
 ----------
  t
@@ -23,99 +23,99 @@ SELECT spat_db_created_at() NOTNULL;
 SET spat.db = 'spat-default';
 /* -------------------- STRINGS / GENERIC -------------------- */
 -- SET - DELETE - SIZE
-SELECT spset('tkey1', 'dfgf');
+SELECT SPSET('tkey1', 'dfgf');
  spset 
 -------
  dfgf
 (1 row)
 
-SELECT spset('tkeygdfg1', 'dfgf');
+SELECT SPSET('tkeygdfg1', 'dfgf');
  spset 
 -------
  dfgf
 (1 row)
 
-SELECT spset('gdf', 'dfgf');
+SELECT SPSET('gdf', 'dfgf');
  spset 
 -------
  dfgf
 (1 row)
 
-SELECT spset('gfd', 'dfgf');
+SELECT SPSET('gfd', 'dfgf');
  spset 
 -------
  dfgf
 (1 row)
 
-SELECT sp_db_nitems(); --4
+SELECT SP_DB_NITEMS(); --4
  sp_db_nitems 
 --------------
             4
 (1 row)
 
 -- DELETE and inspect size
-SELECT del('tkey1'); --existing
+SELECT DEL('tkey1'); --existing
  del 
 -----
  t
 (1 row)
 
-SELECT del('aaaa'); --not existing
+SELECT DEL('aaaa'); --not existing
  del 
 -----
  f
 (1 row)
 
-SELECT sp_db_nitems(); --3
+SELECT SP_DB_NITEMS(); --3
  sp_db_nitems 
 --------------
             3
 (1 row)
 
-SELECT del('tkeygdfg1');
+SELECT DEL('tkeygdfg1');
  del 
 -----
  t
 (1 row)
 
-SELECT del('gdf');
+SELECT DEL('gdf');
  del 
 -----
  t
 (1 row)
 
-SELECT del('gfd');
+SELECT DEL('gfd');
  del 
 -----
  t
 (1 row)
 
-SELECT sp_db_nitems(); --0
+SELECT SP_DB_NITEMS(); --0
  sp_db_nitems 
 --------------
             0
 (1 row)
 
 -- SET / GET / DEL text
-SELECT spset('key1', 'value1');
+SELECT SPSET('key1', 'value1');
  spset  
 --------
  value1
 (1 row)
 
-SELECT spget('key1');
+SELECT SPGET('key1');
  spget  
 --------
  value1
 (1 row)
 
-SELECT del('key1');
+SELECT DEL('key1');
  del 
 -----
  t
 (1 row)
 
-SELECT spget('key1');
+SELECT SPGET('key1');
  spget 
 -------
  
@@ -128,39 +128,39 @@ SELECT SPSET('expkey1', 'expvalue1', ttl=> '1 second');
  expvalue1
 (1 row)
 
-SELECT ttl('expkey1') < '1 second' ;
+SELECT TTL('expkey1') < '1 second' ;
  ?column? 
 ----------
  t
 (1 row)
 
 -- DB SIZE BYTES
-SELECT sp_db_size_bytes();
+SELECT SP_DB_SIZE_BYTES();
  sp_db_size_bytes 
 ------------------
           1048576
 (1 row)
 
-SELECT sp_db_size();
+SELECT SP_DB_SIZE();
  sp_db_size 
 ------------
  1024 kB
 (1 row)
 
 -- sptype
-SELECT spset('key1', 'value1');
+SELECT SPSET('key1', 'value1');
  spset  
 --------
  value1
 (1 row)
 
-SELECT sptype('key1');
+SELECT SPTYPE('key1');
  sptype 
 --------
  string
 (1 row)
 
-SELECT sptype('gsdgdf');
+SELECT SPTYPE('gsdgdf');
  sptype 
 --------
  null

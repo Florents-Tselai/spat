@@ -1,1 +1,1 @@
-SELECT dss_echo('hello world');
+SELECT DSS_ECHO('hello world');
