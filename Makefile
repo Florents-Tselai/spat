@@ -1,5 +1,5 @@
 EXTENSION = spat
-EXTVERSION = v0.1.0a0
+EXTVERSION = 0.1.0a0
 
 MODULE_big = $(EXTENSION)
 OBJS = src/spat.o src/murmur3.o
@@ -31,9 +31,9 @@ dist:
 # for Docker
 PG_MAJOR ?= 17
 
-.PHONY: docker
+.PHONY: docker-build
 
-docker:
+docker-build:
 	docker build --pull --no-cache --build-arg PG_MAJOR=$(PG_MAJOR) -t florents/spat:pg$(PG_MAJOR) -t florents/spat:$(EXTVERSION)-pg$(PG_MAJOR) .
 
 .PHONY: docker-release
