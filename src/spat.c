@@ -267,9 +267,51 @@ typedef struct SpatDB
     dshash_table *g_htab;
 } SpatDB;
 
+/* ---------------------------------------- SpatDB API ----------------------------------------
+ *
+ * This is generally a wrapper dshash_* API functions.
+ * They just use dss as a key instead of void* and return SpatDBEntry* by casting before return.
+ */
+
+bool spdb_is_attached(SpatDB *db);
+bool spdb_is_attached(SpatDB *db) {
+    return db && db->g_dsa != NULL && db->g_htab != NULL;
+}
+
+#define SPDB_LOCK_SHARED(db) LWLockAcquire(&(db)->lck, LW_SHARED)
+#define SPDB_LOCK_EXCLUSIVE(db) LWLockAcquire(&(db)->lck, LW_EXCLUSIVE)
+#define SPDB_LOCK_RELEASE(db) LWLockRelease(&(db)->lck);
+
+SpatDBEntry *spdb_find(SpatDB *db, dss key, bool exclusive);
+SpatDBEntry *spdb_find(SpatDB *db, dss key, bool exclusive) {
+    SpatDBEntry *entry = dshash_find(db->g_htab, &key, exclusive);
+    return entry;
+}
+
+SpatDBEntry *spdb_find_or_insert(SpatDB *db, dss key, bool *found);
+SpatDBEntry *spdb_find_or_insert(SpatDB *db, dss key, bool *found) {
+    SpatDBEntry *entry = dshash_find_or_insert(db->g_htab, &key, found);
+    if (entry == NULL)
+    {
+        elog(ERROR, "dshash_find_or_insert failed, probably out-of-memory");
+    }
+
+    return entry;
+}
+
+bool spdb_delete_key(SpatDB *db, dss key);
+bool spdb_delete_key(SpatDB *db, dss key) {
+    return dshash_delete_key(db->g_htab, &key);
+}
+
+void spdb_release_lock(SpatDB *db, SpatDBEntry *entry);
+void spdb_release_lock(SpatDB *db, SpatDBEntry *entry) {
+    dshash_release_lock(db->g_htab, entry);
+}
+
 /* ---------------------------------------- GUC Variables ---------------------------------------- */
 
-static char* g_guc_spat_db_name = NULL;
+static char* g_guc_spat_db_name = NULL; /* With this we identify a shared SpatDB to attach/detach */
 
 /* ---------------------------------------- Shared Memory Declarations ---------------------------------------- */
 
@@ -280,8 +322,6 @@ static void spat_attach_shmem(void);
 /* ---------------------------------------- Global state ---------------------------------------- */
 
 static SpatDB* g_spat_db = NULL;
-//static dsa_area* g_dsa = NULL;
-//static dshash_table* g_htab = NULL;
 
 static int
 dss_cmp(const void *a, const void *b, size_t size, void *arg) {
@@ -361,18 +401,19 @@ spat_attach_shmem(void)
 
     if (!g_spat_db->g_dsa) {
         Assert(!g_spat_db->g_dsa);
-        LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+        SPDB_LOCK_SHARED(g_spat_db);
         g_spat_db->g_dsa = dsa_attach(g_spat_db->dsa_handle);
-        LWLockRelease(&g_spat_db->lck);
+        SPDB_LOCK_RELEASE(g_spat_db);
     }
 
     if (!g_spat_db->g_htab) {
         Assert(!g_spat_db->g_htab);
-        LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+        SPDB_LOCK_SHARED(g_spat_db);
         g_spat_db->g_htab = dshash_attach(g_spat_db->g_dsa, &default_hash_params, g_spat_db->htab_handle, NULL);
-        LWLockRelease(&g_spat_db->lck);
+        SPDB_LOCK_RELEASE(g_spat_db);
     }
 
+    Assert(spdb_is_attached(g_spat_db));
 }
 
 static void
@@ -456,11 +497,11 @@ spat_db_created_at(PG_FUNCTION_ARGS)
 
     TimestampTz result;
 
-    LWLockAcquire(&g_spat_db->lck, LW_SHARED);
+    SPDB_LOCK_SHARED(g_spat_db);
 
     result = g_spat_db->created_at;
 
-    LWLockRelease(&g_spat_db->lck);
+    SPDB_LOCK_RELEASE(g_spat_db);
 
     spat_detach_shmem();
     PG_RETURN_TIMESTAMPTZ(result);
@@ -536,11 +577,7 @@ spset_generic(PG_FUNCTION_ARGS)
     Assert(valueTypeOid == TEXTOID);
 
     /* Insert the key */
-    entry = dshash_find_or_insert(g_spat_db->g_htab, &key, &found);
-    if (entry == NULL)
-    {
-        elog(ERROR, "dshash_find_or_insert failed, probably out-of-memory");
-    }
+    entry = spdb_find_or_insert(g_spat_db, key, &found);
 
     if (ex)
     {
@@ -559,7 +596,7 @@ spset_generic(PG_FUNCTION_ARGS)
     /* Prepare the SPvalue to echo / return */
     SPValue* result = makeSpvalFromEntry(g_spat_db->g_dsa, entry);
 
-    dshash_release_lock(g_spat_db->g_htab, entry);
+    spdb_release_lock(g_spat_db, entry);
 
     spat_detach_shmem();
 
@@ -578,11 +615,11 @@ spget(PG_FUNCTION_ARGS)
     spat_attach_shmem();
     dss key = PG_GETARG_DSS(0);
 
-    SpatDBEntry *entry = dshash_find(g_spat_db->g_htab, &key, false);
+    SpatDBEntry *entry = spdb_find(g_spat_db, key, false);
     if (entry) {
         found = true;
         result = makeSpvalFromEntry(g_spat_db->g_dsa, entry);
-        dshash_release_lock(g_spat_db->g_htab, entry);
+        spdb_release_lock(g_spat_db, entry);
     }
 
     spat_detach_shmem();
@@ -605,11 +642,11 @@ sptype(PG_FUNCTION_ARGS)
     spat_attach_shmem();
     dss key = PG_GETARG_DSS(0);
 
-    SpatDBEntry *entry = dshash_find(g_spat_db->g_htab, &key, false);
+    SpatDBEntry *entry = spdb_find(g_spat_db, key, false);
     if (entry) {
         result = entry->valtyp;
         elog(DEBUG1, "valtyp=%d", entry->valtyp);
-        dshash_release_lock(g_spat_db->g_htab, entry);
+        spdb_release_lock(g_spat_db, entry);
     }
 
     spat_detach_shmem();
@@ -627,7 +664,7 @@ del(PG_FUNCTION_ARGS)
 
     dss key = PG_GETARG_DSS(0);
 
-    bool found = dshash_delete_key(g_spat_db->g_htab, &key);
+    bool found = spdb_delete_key(g_spat_db, key);
 
     spat_detach_shmem();
     PG_RETURN_BOOL(found);
@@ -647,7 +684,7 @@ getexpireat(PG_FUNCTION_ARGS)
     TimestampTz result;
 
     bool found;
-    SpatDBEntry *entry = dshash_find(g_spat_db->g_htab, &key, false);
+    SpatDBEntry *entry = spdb_find(g_spat_db, key, false);
     if (!entry)
     {
         found = false;
@@ -656,7 +693,7 @@ getexpireat(PG_FUNCTION_ARGS)
     {
         found = true;
         result = entry->expireat;
-        dshash_release_lock(g_spat_db->g_htab, entry);
+        spdb_release_lock(g_spat_db, entry);
     }
 
     spat_detach_shmem();
@@ -739,7 +776,7 @@ sadd(PG_FUNCTION_ARGS)
     dshash_table *htab;
     dshash_table_handle htabhandl;
 
-    SpatDBEntry *dbentry = dshash_find_or_insert(g_spat_db->g_htab, &key, &dbentryfound);
+    SpatDBEntry *dbentry = spdb_find_or_insert(g_spat_db, key, &dbentryfound);
 
     if (!dbentryfound) {
         dbentry->valtyp = SPVAL_SET;
@@ -767,7 +804,8 @@ sadd(PG_FUNCTION_ARGS)
     dshash_release_lock(htab, elem);
     dshash_detach(htab);
 
-    dshash_release_lock(g_spat_db->g_htab, dbentry);
+    spdb_release_lock(g_spat_db, dbentry);
+
 
     spat_detach_shmem();
     PG_RETURN_VOID();
@@ -784,12 +822,12 @@ sismember(PG_FUNCTION_ARGS)
 
     bool result;
 
-    SpatDBEntry *dbentry = dshash_find(g_spat_db->g_htab, &key, false);
+    SpatDBEntry *dbentry = spdb_find(g_spat_db, key, false);
     if (dbentry) {
         /* Existing entry */
         Assert(dbentry->valtyp == SPVAL_SET);
         dshash_table *htab = dshash_attach(g_spat_db->g_dsa, &params_hashset, dbentry->value.set.hndl, NULL);
-        dshash_release_lock(g_spat_db->g_htab, dbentry);
+        spdb_release_lock(g_spat_db, dbentry);
 
         dss *elem = dshash_find(htab, &elem_dss, false);
         if(elem) {
@@ -825,7 +863,7 @@ srem(PG_FUNCTION_ARGS)
 
     int32 result;
 
-    SpatDBEntry *dbentry = dshash_find(g_spat_db->g_htab, &key, true);
+    SpatDBEntry *dbentry = spdb_find(g_spat_db, key, true);
     if (dbentry) {
         /* Existing entry */
         Assert(dbentry->valtyp == SPVAL_SET);
@@ -841,7 +879,7 @@ srem(PG_FUNCTION_ARGS)
         result = deleted ? 1 : 0;
 
         dshash_detach(htab);
-        dshash_release_lock(g_spat_db->g_htab, dbentry);
+        spdb_release_lock(g_spat_db, dbentry);
     }
     else {
         result = 0;
@@ -862,7 +900,7 @@ scard(PG_FUNCTION_ARGS)
 
     uint32 result;
     bool isaset;
-    SpatDBEntry *dbentry =  dshash_find(g_spat_db->g_htab, &key, false);
+    SpatDBEntry *dbentry =  spdb_find(g_spat_db, key, false);
 
     if (dbentry) {
         if (dbentry->valtyp == SPVAL_SET) {
@@ -872,7 +910,7 @@ scard(PG_FUNCTION_ARGS)
         else {
             isaset = false;
         }
-        dshash_release_lock(g_spat_db->g_htab, dbentry);
+        spdb_release_lock(g_spat_db, dbentry);;
     }
     else {
         isaset = false;
@@ -894,8 +932,6 @@ sinter(PG_FUNCTION_ARGS) {
     dss key2 = PG_GETARG_DSS(1);
 
     spat_detach_shmem();
-
-
 }
 
 /* ---------------------------------------- LISTS ---------------------------------------- */
@@ -920,7 +956,7 @@ lpush(PG_FUNCTION_ARGS) {
 
     /* Insert/find the list in the global hash table */
     bool dbentryfound;
-    SpatDBEntry *dbentry = dshash_find_or_insert(g_spat_db->g_htab, &key, &dbentryfound);
+    SpatDBEntry *dbentry = spdb_find_or_insert(g_spat_db, key, &dbentryfound);
 
     if (!dbentryfound) {
         /* New list initialization */
@@ -982,7 +1018,7 @@ lpush(PG_FUNCTION_ARGS) {
         }
     }
 
-    dshash_release_lock(g_spat_db->g_htab, dbentry);
+    spdb_release_lock(g_spat_db, dbentry);
     spat_detach_shmem();
 
     PG_RETURN_VOID();
@@ -1000,13 +1036,13 @@ llen(PG_FUNCTION_ARGS) {
     bool dbentryfound;
     uint32 result;
 
-    SpatDBEntry *dbentry = dshash_find_or_insert(g_spat_db->g_htab, &key, &dbentryfound);
+    SpatDBEntry *dbentry = spdb_find_or_insert(g_spat_db, key, &dbentryfound);
 
     if (dbentryfound) {
         result = dbentry->value.list.size;
     }
 
-    dshash_release_lock(g_spat_db->g_htab, dbentry);
+    spdb_release_lock(g_spat_db, dbentry);
     spat_detach_shmem();
 
     if (dbentryfound)
@@ -1025,11 +1061,11 @@ lpop(PG_FUNCTION_ARGS) {
 
     /* Find the list in the global hash table */
     bool dbentryfound;
-    SpatDBEntry *dbentry = dshash_find_or_insert(g_spat_db->g_htab, &key, &dbentryfound);
+    SpatDBEntry *dbentry = spdb_find_or_insert(g_spat_db, key, &dbentryfound);
 
     /* If the list does not exist or is empty, release the lock and return NULL */
     if (!dbentryfound || dbentry->valtyp != SPVAL_LIST || dbentry->value.list.size == 0) {
-        dshash_release_lock(g_spat_db->g_htab, dbentry);
+        spdb_release_lock(g_spat_db, dbentry);
         spat_detach_shmem();
         PG_RETURN_NULL();
     }
@@ -1060,7 +1096,7 @@ lpop(PG_FUNCTION_ARGS) {
     dsa_free(g_spat_db->g_dsa, head_ptr);
 
     /* Release the lock on the hash table entry */
-    dshash_release_lock(g_spat_db->g_htab, dbentry);
+    spdb_release_lock(g_spat_db, dbentry);
 
     spat_detach_shmem();
 
@@ -1079,7 +1115,7 @@ rpush(PG_FUNCTION_ARGS) {
 
     /* Insert/find the list in the global hash table */
     bool dbentryfound;
-    SpatDBEntry *dbentry = dshash_find_or_insert(g_spat_db->g_htab, &key, &dbentryfound);
+    SpatDBEntry *dbentry = spdb_find_or_insert(g_spat_db, key, &dbentryfound);
 
     if (!dbentryfound || dbentry->value.list.size == 0) {
         /* If the list does not exist or is empty, initialize it */
@@ -1123,7 +1159,7 @@ rpush(PG_FUNCTION_ARGS) {
         dbentry->value.list.size++;
     }
 
-    dshash_release_lock(g_spat_db->g_htab, dbentry);
+    spdb_release_lock(g_spat_db, dbentry);
     spat_detach_shmem();
 
     /* Return success */
@@ -1162,7 +1198,7 @@ hset(PG_FUNCTION_ARGS) {
 
     bool dbentryfound;
 
-    SpatDBEntry *dbentry = dshash_find_or_insert(g_spat_db->g_htab, &key, &dbentryfound);
+    SpatDBEntry *dbentry = spdb_find_or_insert(g_spat_db, key, &dbentryfound);
     dshash_table *htab;
 
     if (!dbentryfound) {
@@ -1191,7 +1227,7 @@ hset(PG_FUNCTION_ARGS) {
     dshash_release_lock(htab, sphsntry);
     dshash_detach(htab);
 
-    dshash_release_lock(g_spat_db->g_htab, dbentry);
+    spdb_release_lock(g_spat_db, dbentry);
     spat_detach_shmem();
 
     PG_RETURN_VOID();
@@ -1208,7 +1244,7 @@ hget(PG_FUNCTION_ARGS) {
     bool sphashentryfound = false;
     text *result;
 
-    SpatDBEntry *dbentry = dshash_find(g_spat_db->g_htab, &key, false);
+    SpatDBEntry *dbentry = spdb_find(g_spat_db, key, false);
 
     if (dbentry && dbentry->valtyp == SPVAL_HASH) {
         dshash_table *htab = dshash_attach(g_spat_db->g_dsa, &sphash_params,
@@ -1225,7 +1261,7 @@ hget(PG_FUNCTION_ARGS) {
     }
 
     if (dbentry)
-        dshash_release_lock(g_spat_db->g_htab, dbentry);
+        spdb_release_lock(g_spat_db, dbentry);
 
     spat_detach_shmem();
     if (sphashentryfound)
