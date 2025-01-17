@@ -166,32 +166,37 @@ SET spat.db = 'spat-default';
 
 ## Installation
 
-Compile and install the extension (supports Postgres 13+)
+Compile and install the extension (supports Postgres 17+)
 
 ```sh
 cd /tmp
-git clone --branch v0.8.0 https://github.com/Florents-Tselai/spat.git
+git clone https://github.com/Florents-Tselai/spat.git
 cd spat
 make
 make install # may need sudo
 ```
-You can also install it with [Docker](#docker), [Homebrew](#homebrew), [PGXN](#pgxn)
+You can also install it with [Docker](#docker)
+[//]: # (, [Homebrew]&#40;#homebrew&#41;, [PGXN]&#40;#pgxn&#41;)
 
 ### Docker
 
 ```sh
 docker pull florents/spat:pg17
 # or
-docker pull florents/spat:0.1.0-pg17
+docker pull florents/spat:0.1.0a0-pg17
 ```
 
-### pgxn
+[//]: # (### pgxn)
 
-Install from the [PostgreSQL Extension Network](https://pgxn.org/dist/spat) with:
+[//]: # ()
+[//]: # (Install from the [PostgreSQL Extension Network]&#40;https://pgxn.org/dist/spat&#41; with:)
 
-```sh
-pgxn install spat
-```
+[//]: # ()
+[//]: # (```sh)
+
+[//]: # (pgxn install spat)
+
+[//]: # (```)
 
 ### MurmurHash3 
 
@@ -265,7 +270,7 @@ ALTER SYSTEM SET bgwriter_delay = '10min'; -- Delay any operations
 ```
 </details>
 
-## FAQ 
+## FAQ
 
 ## Background
 
