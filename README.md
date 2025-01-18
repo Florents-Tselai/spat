@@ -1,11 +1,13 @@
 # spat: Redis-like In-Memory DB Embedded in Postgres
 
 [![Build Status](https://github.com/Florents-Tselai/spat/actions/workflows/build.yml/badge.svg)](https://github.com/Florents-Tselai/spat/actions)
+[![Docker Pulls](https://img.shields.io/docker/pulls/florents/spat)](https://hub.docker.com/r/florents/spat)
+[![License](https://img.shields.io/github/license/florents-tselai/spat?color=blue)](https://github.com/florents-tselai/spat?tab=AGPL-3.0-1-ov-file#readme)
 
 **spat** is a Redis-like in-memory data structure server embedded in Postgres.
 Data is stored in Postgres shared memory.
 The data model is key-value.
-Keys are strings, but values can be strings, lists, sets or hashes.
+Keys are strings, but values can be strings, lists, sets, or hashes.
 
 With **spat**:
 - You don't need to maintain an external caching server. This greatly reduces complexity.
@@ -212,14 +214,9 @@ make all install PG_CPPFLAGS=-DSPAT_MURMUR3=1
 > Don't use this in production yet.
 
 > [!CAUTION]
-> This is far from ready for production.
-> There are definitely memory leak bugs in the code,
-> which could potentially mess-up your shared memory
-> and degrade performance.
-
-> [!WARNING]
-> You should assume that the data you cache, are visible
-> and accessible even between different users in the same database cluster.
+> This is not ready for production.
+> Delete operations especially can leave some clutter behind,
+> but a server restart should clean them up.
 
 ## Configuration
 
@@ -279,9 +276,9 @@ Spat relies on the two following features of Postgres
 - PG10 Introduced dynamic shared memory areas (DSA) in [13df76a](https://github.com/postgres/postgres/commit/13df76a)
 - PG17 Introduced the dynamic shared memory registry in [8b2bcf3](https://github.com/postgres/postgres/commit/8b2bcf3)
 
-Internally it stores its data in a `dshash`: 
-this is an open hashing hash table, with a linked list at each table entry.  
-It supports dynamic resizing, as required to prevent the linked lists from growing too long on average.  
+Internally, it stores its data in a `dshash`: 
+This is an open hashing hash table with a linked list at each table entry.  
+It supports dynamic resizing to prevent the linked lists from growing too long on average.  
 Currently, only growing is supported: the hash table never becomes smaller.
 
 <img src="test/bench/plot.png" width="50%"/>
