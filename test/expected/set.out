@@ -1,0 +1,195 @@
+/* -------------------- SETS -------------------- */
+SELECT SADD('set1', 'elem1');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SCARD('set1'); -- 1
+ scard 
+-------
+     1
+(1 row)
+
+SELECT SPTYPE('set1');
+ sptype 
+--------
+ set
+(1 row)
+
+SELECT SADD('set1', 'elem2');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SADD('set1', 'elem2'); --duplicate
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SADD('set1', 'elem3');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SCARD('set1'); -- 3
+ scard 
+-------
+     3
+(1 row)
+
+SELECT DEL('set1');
+ del 
+-----
+ t
+(1 row)
+
+SELECT SCARD('set1');
+ scard 
+-------
+      
+(1 row)
+
+SELECT SADD('set2', 'elem1');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SCARD('set2'); -- 1
+ scard 
+-------
+     1
+(1 row)
+
+SELECT SPTYPE('set2');
+ sptype 
+--------
+ set
+(1 row)
+
+SELECT SADD('set2', 'elem2');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SADD('set2', 'elem2'); --duplicate
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SADD('set2', 'elem3');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SCARD('set2'); -- 3
+ scard 
+-------
+     3
+(1 row)
+
+SELECT SPTYPE('set2');
+ sptype 
+--------
+ set
+(1 row)
+
+SELECT SCARD('setxxxx');
+ scard 
+-------
+      
+(1 row)
+
+SELECT SADD('set1', 'elem1'); -- remember we DEL set1 above
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SISMEMBER('set1', 'elem1'); -- t
+ sismember 
+-----------
+ t
+(1 row)
+
+SELECT SISMEMBER('set1', 'elem4'); -- f
+ sismember 
+-----------
+ f
+(1 row)
+
+SELECT SISMEMBER('setxxxx', 'elem4'); -- f
+ sismember 
+-----------
+ f
+(1 row)
+
+-- SREM
+SELECT SADD('remset1', 'elem1');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SCARD('remset1'); -- 1
+ scard 
+-------
+     1
+(1 row)
+
+SELECT SREM('remset1', 'nothere'); -- f
+ srem 
+------
+    0
+(1 row)
+
+SELECT SISMEMBER('remset1', 'elem1'); -- t
+ sismember 
+-----------
+ t
+(1 row)
+
+SELECT SREM('remset1', 'elem1'); -- t
+ srem 
+------
+    1
+(1 row)
+
+SELECT SISMEMBER('remset1', 'elem1'); -- f
+ sismember 
+-----------
+ f
+(1 row)
+
+SELECT SCARD('remset1'); -- 0
+ scard 
+-------
+     0
+(1 row)
+
+-- SPGET for set
+SELECT SADD('set1', 'elem1');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SADD('set1', 'elem2');
+ sadd 
+------
+ 
+(1 row)
+
+SELECT SPGET('set1');
+  spget  
+---------
+ set (2)
+(1 row)
+

@@ -1,0 +1,45 @@
+{
+    "name": "spat",
+    "abstract": "Redis-like in-memory database embedded in Postgres",
+    "version": "0.1.0a0",
+    "maintainer": [
+        "Florents Tselai <florents.tselai@gmail.com>"
+    ],
+    "license": "gpl_2",
+    "generated_by": "Florents Tselai",
+    "release_status": "stable",
+    "prereqs": {
+        "runtime": {
+            "requires": {
+                "PostgreSQL": "17.0.0"
+            }
+        }
+    },
+    "provides": {
+        "spat": {
+            "file": "sql/spat--0.1.0a0.sql",
+            "docfile": "README.md",
+            "version": "0.1.0a0",
+            "abstract": "Redis-like in-memory database embedded in Postgres"
+        }
+    },
+    "resources": {
+        "bugtracker": {
+            "web": "https://github.com/Florents-Tselai/spat/issues"
+        },
+        "repository": {
+            "url": "git://github.com/Florents-Tselai/spat.git" ,
+            "web": "https://github.com/Florents-Tselai/spat",
+            "type": "git"
+        }
+    },
+    "meta-spec": {
+      "version": "1.0.0",
+      "url": "http://pgxn.org/meta/spec.txt"
+    },
+    "tags": [
+        "cache",
+        "hash",
+        "in-memory"
+    ]
+}
