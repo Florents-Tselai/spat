@@ -27,6 +27,28 @@ SELECT LPUSH('list1', 'elem2');
 SELECT LPOP('list1')
 ```
 
+## Getting Started
+
+To quickly get a Spat instance up and running, simply pull and run the latest Docker image:
+
+```bash
+docker run --name spat -e POSTGRES_PASSWORD=password florents/spat:pg17
+```
+
+This will start a Spat instance with default user postgres and password password. You can then connect to the database using psql:
+
+```bash
+docker exec -it spat psql -U postgres
+```
+
+Then install the extension
+
+```tsql
+CREATE EXTENSION spat;
+```
+
+For other installation optionse see [Installation](#Installation)
+
 ## Usage 
 
 spat `key`s are always `text`. 
@@ -178,7 +200,6 @@ make
 make install # may need sudo
 ```
 You can also install it with [Docker](#docker)
-[//]: # (, [Homebrew]&#40;#homebrew&#41;, [PGXN]&#40;#pgxn&#41;)
 
 ### Docker
 
