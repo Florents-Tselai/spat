@@ -1,17 +1,13 @@
 # spat: Redis-like In-Memory DB Embedded in Postgres
 
 [![Build Status](https://github.com/Florents-Tselai/spat/actions/workflows/build.yml/badge.svg)](https://github.com/Florents-Tselai/spat/actions)
+[![Docker Pulls](https://img.shields.io/docker/pulls/florents/spat)](https://hub.docker.com/r/florents/spat)
+[![License](https://img.shields.io/github/license/florents-tselai/spat?color=blue)](https://github.com/florents-tselai/spat?tab=AGPL-3.0-1-ov-file#readme)
 
 **spat** is a Redis-like in-memory data structure server embedded in Postgres.
 Data is stored in Postgres shared memory.
 The data model is key-value.
-Keys are strings, but values can be strings, lists, sets or hashes.
-
-With **spat**:
-- You don't need to maintain an external caching server. This greatly reduces complexity.
-- You can express powerful logic by embedding data structures like lists and sets
-in your SQL queries.
-- You can reduce your infrastructure costs by reusing server resources.
+Keys are strings, but values can be strings, lists, sets, or hashes.
 
 ```sql
 SELECT SPSET('key', 'value');
@@ -25,7 +21,40 @@ SELECT LPUSH('list1', 'elem2');
 SELECT LPOP('list1')
 ```
 
+With **spat**:
+- You don't need to maintain an external caching server. This greatly reduces complexity.
+- You can express powerful logic by embedding data structures like lists and sets
+in your SQL queries.
+- You can reduce your infrastructure costs by reusing server resources.
+
+## Getting Started
+
+To quickly get a Spat instance up and running, pull and run the latest Docker image:
+
+```bash
+docker run --name spat -e POSTGRES_PASSWORD=password florents/spat:pg17
+```
+
+This will start a Spat instance with default user postgres and password password. You can then connect to the database using psql:
+
+```bash
+docker exec -it spat psql -U postgres
+```
+
+Then install the extension
+
+```tsql
+CREATE EXTENSION spat;
+```
+
+For other installation optionse see [Installation](#Installation)
+
 ## Usage 
+
+> [!TIP]
+> Development follows roughly TDD principles,
+> thus, the best and most up-to-date documentation are the test cases in [test/sql](test/sql)
+
 
 spat `key`s are always `text`. 
 
@@ -166,106 +195,37 @@ SET spat.db = 'spat-default';
 
 ## Installation
 
-Compile and install the extension (supports Postgres 13+)
+> [!CAUTION]
+> This is not ready for production.
+> Delete operations especially can leave some clutter behind,
+> but a server restart should clean them up.
+
+Compile and install the extension (supports Postgres 17+)
 
 ```sh
 cd /tmp
-git clone --branch v0.8.0 https://github.com/Florents-Tselai/spat.git
+git clone https://github.com/Florents-Tselai/spat.git
 cd spat
 make
 make install # may need sudo
 ```
-You can also install it with [Docker](#docker), [Homebrew](#homebrew), [PGXN](#pgxn)
+### MurmurHash3 
+
+To use the MurmurHash3 hashing algorithm instead of Postgres' default (`tag_hash`)
+
+``` shell
+make all install PG_CPPFLAGS=-DSPAT_MURMUR3=1
+```
+
+You can also install it with [Docker](#docker)
 
 ### Docker
 
 ```sh
 docker pull florents/spat:pg17
 # or
-docker pull florents/spat:0.1.0-pg17
+docker pull florents/spat:0.1.0a0-pg17
 ```
-
-### pgxn
-
-Install from the [PostgreSQL Extension Network](https://pgxn.org/dist/spat) with:
-
-```sh
-pgxn install spat
-```
-
-### MurmurHash3 
-
-To use the MurmurHash3 hasing algorithm instead of Postgres' default (`tag_hash`)
-
-```shell
-make all install PG_CPPFLAGS=-DSPAT_MURMUR3=1
-```
-
-### Docker
-
-> [!NOTE]
-> Don't use this in production yet.
-
-> [!CAUTION]
-> This is far from ready for production.
-> There are definitely memory leak bugs in the code,
-> which could potentially mess-up your shared memory
-> and degrade performance.
-
-> [!WARNING]
-> You should assume that the data you cache, are visible
-> and accessible even between different users in the same database cluster.
-
-## Configuration
-
-You can't just turn Postgres into an in-memory database.
-But maybe, just maybe, you can get close enough by configuring it accordingly.
-
-The first step would be to use `PGDATA=/dev/shm` or other similar memory-backed filesystem.
-Below are a few more ideas in that direction. 
-
-<details>
-<summary>Sample Configuration</summary>
-
-```sql
--- Disable Logging
-ALTER SYSTEM SET logging_collector = 'off';
-
--- Minimize Temporary Disk Usage
-ALTER SYSTEM SET work_mem = '1GB';
-ALTER SYSTEM SET maintenance_work_mem = '10GB';
-
--- Disable WAL Writes
-ALTER SYSTEM SET wal_level = 'none';
-ALTER SYSTEM SET archive_mode = 'off';
-ALTER SYSTEM SET synchronous_commit = 'off';
-ALTER SYSTEM SET wal_writer_delay = '10min';
-ALTER SYSTEM SET max_wal_size = '1GB'; -- Set a high threshold to minimize flushing
-ALTER SYSTEM SET wal_buffers = '16MB'; -- Minimal size
-
---Disable Checkpoints
-ALTER SYSTEM SET checkpoint_timeout = '10min'; -- Or higher
-ALTER SYSTEM SET checkpoint_completion_target = '0'; -- Prevent intermediate flushes
-ALTER SYSTEM SET max_wal_size = '128GB'; -- Keep WAL size large to delay checkpoints
-      
--- Disable Auto-Vacuum
-ALTER SYSTEM SET checkpoint_timeout = '10min'; -- Or higher
-ALTER SYSTEM SET checkpoint_completion_target = '0'; -- Prevent intermediate flushes
-ALTER SYSTEM SET max_wal_size = '128GB'; -- Keep WAL size large to delay checkpoints
-      
--- Use Temporary Tablespaces in Memory
-ALTER SYSTEM SET temp_tablespaces = '/dev/shm'; -- Or equivalent memory-backed filesystem
-      
--- Disable Disk Writes for Statistics
-ALTER SYSTEM SET stats_temp_directory = '/dev/shm';
-      
--- Disable Background Writer
-ALTER SYSTEM SET bgwriter_lru_maxpages = 0;
-ALTER SYSTEM SET bgwriter_delay = '10min'; -- Delay any operations
-```
-</details>
-
-## FAQ 
 
 ## Background
 
@@ -274,9 +234,9 @@ Spat relies on the two following features of Postgres
 - PG10 Introduced dynamic shared memory areas (DSA) in [13df76a](https://github.com/postgres/postgres/commit/13df76a)
 - PG17 Introduced the dynamic shared memory registry in [8b2bcf3](https://github.com/postgres/postgres/commit/8b2bcf3)
 
-Internally it stores its data in a `dshash`: 
-this is an open hashing hash table, with a linked list at each table entry.  
-It supports dynamic resizing, as required to prevent the linked lists from growing too long on average.  
+Internally, it stores its data in a `dshash`: 
+This is an open hashing hash table with a linked list at each table entry.  
+It supports dynamic resizing to prevent the linked lists from growing too long on average.  
 Currently, only growing is supported: the hash table never becomes smaller.
 
-<img src="test/bench/plot.png" width="50%"/>
+[//]: # (<img src="test/bench/plot.png" width="50%"/>)
