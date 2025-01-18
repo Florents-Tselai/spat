@@ -9,12 +9,6 @@ Data is stored in Postgres shared memory.
 The data model is key-value.
 Keys are strings, but values can be strings, lists, sets, or hashes.
 
-With **spat**:
-- You don't need to maintain an external caching server. This greatly reduces complexity.
-- You can express powerful logic by embedding data structures like lists and sets
-in your SQL queries.
-- You can reduce your infrastructure costs by reusing server resources.
-
 ```sql
 SELECT SPSET('key', 'value');
 SELECT SPGET('key');
@@ -27,9 +21,15 @@ SELECT LPUSH('list1', 'elem2');
 SELECT LPOP('list1')
 ```
 
+With **spat**:
+- You don't need to maintain an external caching server. This greatly reduces complexity.
+- You can express powerful logic by embedding data structures like lists and sets
+in your SQL queries.
+- You can reduce your infrastructure costs by reusing server resources.
+
 ## Getting Started
 
-To quickly get a Spat instance up and running, simply pull and run the latest Docker image:
+To quickly get a Spat instance up and running, pull and run the latest Docker image:
 
 ```bash
 docker run --name spat -e POSTGRES_PASSWORD=password florents/spat:pg17
@@ -50,6 +50,11 @@ CREATE EXTENSION spat;
 For other installation optionse see [Installation](#Installation)
 
 ## Usage 
+
+> [!TIP]
+> Development follows roughly TDD principles,
+> thus, the best and most up-to-date documentation are the test cases in [test/sql](test/sql)
+
 
 spat `key`s are always `text`. 
 
@@ -190,6 +195,11 @@ SET spat.db = 'spat-default';
 
 ## Installation
 
+> [!CAUTION]
+> This is not ready for production.
+> Delete operations especially can leave some clutter behind,
+> but a server restart should clean them up.
+
 Compile and install the extension (supports Postgres 17+)
 
 ```sh
@@ -199,6 +209,14 @@ cd spat
 make
 make install # may need sudo
 ```
+### MurmurHash3 
+
+To use the MurmurHash3 hashing algorithm instead of Postgres' default (`tag_hash`)
+
+``` shell
+make all install PG_CPPFLAGS=-DSPAT_MURMUR3=1
+```
+
 You can also install it with [Docker](#docker)
 
 ### Docker
@@ -208,87 +226,6 @@ docker pull florents/spat:pg17
 # or
 docker pull florents/spat:0.1.0a0-pg17
 ```
-
-[//]: # (### pgxn)
-
-[//]: # ()
-[//]: # (Install from the [PostgreSQL Extension Network]&#40;https://pgxn.org/dist/spat&#41; with:)
-
-[//]: # ()
-[//]: # (```sh)
-
-[//]: # (pgxn install spat)
-
-[//]: # (```)
-
-### MurmurHash3 
-
-To use the MurmurHash3 hasing algorithm instead of Postgres' default (`tag_hash`)
-
-```shell
-make all install PG_CPPFLAGS=-DSPAT_MURMUR3=1
-```
-
-### Docker
-
-> [!NOTE]
-> Don't use this in production yet.
-
-> [!CAUTION]
-> This is not ready for production.
-> Delete operations especially can leave some clutter behind,
-> but a server restart should clean them up.
-
-## Configuration
-
-You can't just turn Postgres into an in-memory database.
-But maybe, just maybe, you can get close enough by configuring it accordingly.
-
-The first step would be to use `PGDATA=/dev/shm` or other similar memory-backed filesystem.
-Below are a few more ideas in that direction. 
-
-<details>
-<summary>Sample Configuration</summary>
-
-```sql
--- Disable Logging
-ALTER SYSTEM SET logging_collector = 'off';
-
--- Minimize Temporary Disk Usage
-ALTER SYSTEM SET work_mem = '1GB';
-ALTER SYSTEM SET maintenance_work_mem = '10GB';
-
--- Disable WAL Writes
-ALTER SYSTEM SET wal_level = 'none';
-ALTER SYSTEM SET archive_mode = 'off';
-ALTER SYSTEM SET synchronous_commit = 'off';
-ALTER SYSTEM SET wal_writer_delay = '10min';
-ALTER SYSTEM SET max_wal_size = '1GB'; -- Set a high threshold to minimize flushing
-ALTER SYSTEM SET wal_buffers = '16MB'; -- Minimal size
-
---Disable Checkpoints
-ALTER SYSTEM SET checkpoint_timeout = '10min'; -- Or higher
-ALTER SYSTEM SET checkpoint_completion_target = '0'; -- Prevent intermediate flushes
-ALTER SYSTEM SET max_wal_size = '128GB'; -- Keep WAL size large to delay checkpoints
-      
--- Disable Auto-Vacuum
-ALTER SYSTEM SET checkpoint_timeout = '10min'; -- Or higher
-ALTER SYSTEM SET checkpoint_completion_target = '0'; -- Prevent intermediate flushes
-ALTER SYSTEM SET max_wal_size = '128GB'; -- Keep WAL size large to delay checkpoints
-      
--- Use Temporary Tablespaces in Memory
-ALTER SYSTEM SET temp_tablespaces = '/dev/shm'; -- Or equivalent memory-backed filesystem
-      
--- Disable Disk Writes for Statistics
-ALTER SYSTEM SET stats_temp_directory = '/dev/shm';
-      
--- Disable Background Writer
-ALTER SYSTEM SET bgwriter_lru_maxpages = 0;
-ALTER SYSTEM SET bgwriter_delay = '10min'; -- Delay any operations
-```
-</details>
-
-## FAQ
 
 ## Background
 
