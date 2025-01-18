@@ -281,4 +281,4 @@ This is an open hashing hash table with a linked list at each table entry.
 It supports dynamic resizing to prevent the linked lists from growing too long on average.  
 Currently, only growing is supported: the hash table never becomes smaller.
 
-<img src="test/bench/plot.png" width="50%"/>
+[//]: # (<img src="test/bench/plot.png" width="50%"/>)
