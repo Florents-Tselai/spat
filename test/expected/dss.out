@@ -1,0 +1,6 @@
+SELECT DSS_ECHO('hello world');
+  dss_echo   
+-------------
+ hello world
+(1 row)
+

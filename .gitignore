@@ -7,3 +7,7 @@
 *.so
 *.dylib
 /.idea/
+/dist/
+*.log
+regression.*
+META.json

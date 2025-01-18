@@ -1,0 +1,37 @@
+/* -------------------- HASHES -------------------- */
+SELECT HSET('h1', 'f1', 'Hello');
+ hset 
+------
+ 
+(1 row)
+
+SELECT HSET('h1', 'f2', 'World');
+ hset 
+------
+ 
+(1 row)
+
+SELECT HGET('h1', 'f1'); -- Hello
+ hget  
+-------
+ Hello
+(1 row)
+
+SELECT HGET('h1', 'f2'); -- World
+ hget  
+-------
+ World
+(1 row)
+
+SELECT HGET('h1', 'f3'); -- NULL
+ hget 
+------
+ 
+(1 row)
+
+SELECT HGET('h3', 'f1'); -- NULL
+ hget 
+------
+ 
+(1 row)
+

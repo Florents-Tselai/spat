@@ -1,0 +1,86 @@
+/* -------------------- LISTS -------------------- */
+/* LPUSH -> LEN -> LPOP */
+SELECT LPUSH('list1', 'elem1');
+ lpush 
+-------
+ 
+(1 row)
+
+SELECT LLEN('list1'); -- 1
+ llen 
+------
+    1
+(1 row)
+
+SELECT LPUSH('list1', 'elem2');
+ lpush 
+-------
+ 
+(1 row)
+
+SELECT LLEN('list1'); -- 2
+ llen 
+------
+    2
+(1 row)
+
+SELECT SPGET('list1');
+  spget   
+----------
+ list (2)
+(1 row)
+
+SELECT LPOP('list1'); -- elem2
+ lpop  
+-------
+ elem2
+(1 row)
+
+SELECT LLEN('list1'); -- 1
+ llen 
+------
+    1
+(1 row)
+
+SELECT LPOP('list1'); -- elem1
+ lpop  
+-------
+ elem1
+(1 row)
+
+SELECT LLEN('list1'); -- 0
+ llen 
+------
+    0
+(1 row)
+
+SELECT LPOP('list1'); -- null
+ lpop 
+------
+ 
+(1 row)
+
+SELECT LLEN('list1'); -- 0
+ llen 
+------
+    0
+(1 row)
+
+SELECT LPOP('list1'); -- null
+ lpop 
+------
+ 
+(1 row)
+
+SELECT LLEN('list1'); -- 0
+ llen 
+------
+    0
+(1 row)
+
+SELECT SPGET('list1');
+  spget   
+----------
+ list (0)
+(1 row)
+
