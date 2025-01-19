@@ -27,6 +27,16 @@ With **spat**:
 in your SQL queries.
 - You can reduce your infrastructure costs by reusing server resources.
 
+## Motivation
+
+The goal is not to completely replace or recreate Redis within Postgres. 
+Redis, however, has been proven to be (arguably) a tool that excels in the “20-80” rule:
+most use 20% of its available functionality to support the 80% of use cases. 
+
+My aim is to provide Redis-like semantics and data structures within SQL, 
+offering good enough functionality to support that critical 20% of use cases. 
+This approach simplifies state and data sharing across queries without the need to manage a separate cache service alongside the primary database.
+
 ## Getting Started
 
 To quickly get a Spat instance up and running, pull and run the latest Docker image:
@@ -54,7 +64,6 @@ For other installation optionse see [Installation](#Installation)
 > [!TIP]
 > Development follows roughly TDD principles,
 > thus, the best and most up-to-date documentation are the test cases in [test/sql](test/sql)
-
 
 spat `key`s are always `text`. 
 
