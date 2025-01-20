@@ -31,16 +31,19 @@ dist:
 # for Docker
 PG_MAJOR ?= 17
 
-.PHONY: docker-build
+.PHONY: docker-build docker-release
 
 docker-build:
-	docker build --pull --no-cache --build-arg PG_MAJOR=$(PG_MAJOR) -t florents/spat:pg$(PG_MAJOR) -t florents/spat:$(EXTVERSION)-pg$(PG_MAJOR) .
-
-.PHONY: docker-release
+	docker build --pull --no-cache --build-arg PG_MAJOR=$(PG_MAJOR) \
+		-t florents/spat:pg$(PG_MAJOR) \
+		-t florents/spat:$(EXTVERSION)-pg$(PG_MAJOR) \
+		-t florents/spat:latest .
 
 docker-release:
-	docker buildx build --push --pull --no-cache --platform linux/amd64,linux/arm64 --build-arg PG_MAJOR=$(PG_MAJOR) -t florents/spat:pg$(PG_MAJOR) -t florents/spat:$(EXTVERSION)-pg$(PG_MAJOR) .
-
+	docker buildx build --push --pull --no-cache --platform linux/amd64,linux/arm64 --build-arg PG_MAJOR=$(PG_MAJOR) \
+		-t florents/spat:pg$(PG_MAJOR) \
+		-t florents/spat:$(EXTVERSION)-pg$(PG_MAJOR) \
+		-t florents/spat:latest .
 ######### DEVELOPMENT #########
 
 PGDATA = ./pgdata
