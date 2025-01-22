@@ -4,6 +4,11 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/florents/spat)](https://hub.docker.com/r/florents/spat)
 [![License](https://img.shields.io/github/license/Florents-Tselai/spat?color=blue)](https://github.com/Florents-Tselai/spat?tab=AGPL-3.0-1-ov-file#readme)
 
+> [!CAUTION]
+> Don't use in production (yet)!
+> Delete operations especially can leave some clutter behind,
+> but a server restart should clean them up.
+
 **spat** is a Redis-like in-memory data structure server embedded in Postgres.
 Data is stored in Postgres shared memory.
 The data model is key-value.
@@ -203,11 +208,6 @@ SET spat.db = 'spat-default';
 ```
 
 ## Installation
-
-> [!CAUTION]
-> This is not ready for production.
-> Delete operations especially can leave some clutter behind,
-> but a server restart should clean them up.
 
 Compile and install the extension (supports Postgres 17+)
 
