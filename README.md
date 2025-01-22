@@ -7,7 +7,7 @@
 > [!CAUTION]
 > Don't use in production (yet)!
 > Delete operations especially can leave some clutter behind,
-> but a server restart should clean them up.
+> but a server restart should clean them up. See [Considerations](#Considerations)
 
 **spat** is a Redis-like in-memory data structure server embedded in Postgres.
 Data is stored in Postgres shared memory.
@@ -235,6 +235,17 @@ docker pull florents/spat:pg17
 # or
 docker pull florents/spat:0.1.0a0-pg17
 ```
+
+## Considerations
+
+Here are some points made by people who've seen an early version of this:
+
+- What are your thoughts on making this subject to transactional boundaries / general transactional behavior.
+- Benchmarks comparing to unlogged table+prepared statements? It can be surprisingly tricky to do a lot better than the conventional implementation, especially for reads.
+- How to handle
+- Exposing data structures to queries is a bad idea. You're reinventing IMS from the 1960s.
+- A major benefit of a cache like Redis it's that its a separate server instance
+- A weak point may lie in removing resources (locks and DSM segment) if users create/delete databases more frequently than usual. I know at least one ORM that does it in auto mode.
 
 ## Background
 
