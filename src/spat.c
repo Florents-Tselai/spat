@@ -3,8 +3,8 @@
  * spat.c
  *  spat: Redis-like In-Memory DB Embedded in Postgres
  *
- * A SpatDB is just a segment of Postgres' memory addressable by a name.
- * Its data model is key-value.
+ * A SpatDB is just a segment of Postgres' shared memory addressable by a name.
+ * Each SpatDB is backed by a dshash_table stored in a DSA.
  *
  * Copyright (c) 2024, Florents Tselai
  *
@@ -58,15 +58,11 @@ PG_MODULE_MAGIC;
 
 /* ---------------------------------------- DSS ---------------------------------------- */
 
-/*
- * A Dynamicaly-Shared String (DSS) is a null-terminated char* stored in a DSA
- */
-
+/* A Dynamicaly-Shared String (DSS) is a null-terminated char* stored in a DSA */
 typedef struct dss {
-    dsa_pointer str; /* =VARDATA_ANY(txt) */
-    Size len; /* = strlen + 1 = VARSIZE_ANY_EXHDR(t) + 1 */
+    dsa_pointer str;     /* = VARDATA_ANY(txt) */
+    Size        len;     /* = strlen + 1 = VARSIZE_ANY_EXHDR(t) + 1 */
 } dss;
-
 
 extern int dss_cmp_arg(const void *a, const void *b, size_t size, void *arg);
 int dss_cmp_arg(const void *a, const void *b, size_t size, void *arg)
@@ -254,17 +250,17 @@ typedef struct SpatDBEntry
 
 typedef struct SpatDB
 {
-    LWLock lck;
+    LWLock              lck;
 
-    dsa_handle dsa_handle; /* dsa_handle to DSA area associated with this DB */
-    dshash_table_handle htab_handle; /* htab_handle pointing to the underlying dshash_table */
+    dsa_handle          dsa_handle;     /* dsa_handle to DSA area associated with this DB */
+    dshash_table_handle htab_handle;    /* htab_handle pointing to the underlying dshash_table */
 
-    dsa_pointer name; /* Metadata about the db itself */
-    TimestampTz created_at;
+    dsa_pointer         name;           /* Metadata about the db itself */
+    TimestampTz         created_at;
 
     /* The following are set when the db is attached */
-    dsa_area *g_dsa;
-    dshash_table *g_htab;
+    dsa_area            *g_dsa;
+    dshash_table        *g_htab;
 } SpatDB;
 
 /* ---------------------------------------- SpatDB API ----------------------------------------
@@ -273,14 +269,15 @@ typedef struct SpatDB
  * They just use dss as a key instead of void* and return SpatDBEntry* by casting before return.
  */
 
+
 bool spdb_is_attached(SpatDB *db);
 bool spdb_is_attached(SpatDB *db) {
     return db && db->g_dsa != NULL && db->g_htab != NULL;
 }
 
-#define SPDB_LOCK_SHARED(db) LWLockAcquire(&(db)->lck, LW_SHARED)
+#define SPDB_LOCK_SHARED(db)    LWLockAcquire(&(db)->lck, LW_SHARED)
 #define SPDB_LOCK_EXCLUSIVE(db) LWLockAcquire(&(db)->lck, LW_EXCLUSIVE)
-#define SPDB_LOCK_RELEASE(db) LWLockRelease(&(db)->lck);
+#define SPDB_LOCK_RELEASE(db)   LWLockRelease(&(db)->lck);
 
 SpatDBEntry *spdb_find(SpatDB *db, dss key, bool exclusive);
 SpatDBEntry *spdb_find(SpatDB *db, dss key, bool exclusive) {
@@ -431,10 +428,10 @@ spat_detach_shmem(void) {
 
 /* ---------------------------------------- Commands Common ---------------------------------------- */
 
-#define PG_GETARG_DSS(n) dss_new(g_spat_db->g_dsa, PG_GETARG_TEXT_PP((n)))
-#define DSS_LEN(s) dsa_get_address(g_dsa, (s))->len
-#define DSS_TO_TEXT(s) dss_to_text(g_spat_db->g_dsa, (s))
-#define PG_RETURN_DSS(s) PG_RETURN_POINTER(DSS_TO_TEXT(s))
+#define PG_GETARG_DSS(n)    dss_new(g_spat_db->g_dsa, PG_GETARG_TEXT_PP((n)))
+#define DSS_LEN(s)          dsa_get_address(g_dsa, (s))->len
+#define DSS_TO_TEXT(s)      dss_to_text(g_spat_db->g_dsa, (s))
+#define PG_RETURN_DSS(s)    PG_RETURN_POINTER(DSS_TO_TEXT(s))
 
 /* ---------------------------------------- Commands Implementation ---------------------------------------- */
 
@@ -473,6 +470,9 @@ spvalue_out(PG_FUNCTION_ARGS)
             break;
         case SPVAL_LIST:
             appendStringInfo(&output, "list (%d)", input->value.list.size);
+            break;
+        default:
+            appendStringInfoString(&output, "invalid");
             break;
     }
 

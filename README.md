@@ -2,6 +2,7 @@
 
 [![Github](https://img.shields.io/static/v1?label=GitHub&message=Repo&logo=GitHub&color=green)](https://github.com/Florents-Tselai/spat)
 [![Build Status](https://github.com/Florents-Tselai/spat/actions/workflows/build.yml/badge.svg)](https://github.com/Florents-Tselai/spat/actions)
+![GitHub Repo stars](https://img.shields.io/github/stars/Florents-Tselai/spat)
 [![Docker Pulls](https://img.shields.io/docker/pulls/florents/spat)](https://hub.docker.com/r/florents/spat)
 [![License](https://img.shields.io/github/license/Florents-Tselai/spat?color=blue)](https://github.com/Florents-Tselai/spat?tab=AGPL-3.0-1-ov-file#readme)
 [![Github Sponsors](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=green)](https://github.com/sponsors/Florents-Tselai/)
@@ -18,14 +19,17 @@ Keys are strings, but values can be strings, lists, sets, or hashes.
 
 ```sql
 SELECT SPSET('key', 'value');
-SELECT SPGET('key');
+SELECT SPGET('key'); -- value
+
+SELECT LPUSH('list1', 'elem1');
+SELECT LPUSH('list1', 'elem2');
+SELECT LPOP('list1'); -- elem2
 
 SELECT SADD('set1', 'elem1', 'elem2');
 SELECT SISMEMBER('set1', 'elem1'); -- t
 
-SELECT LPUSH('list1', 'elem1');
-SELECT LPUSH('list1', 'elem2');
-SELECT LPOP('list1')
+SELECT HSET('h1', 'f1', 'Hello');
+SELECT HGET('h1', 'f1'); -- Hello
 ```
 
 With **spat**:
