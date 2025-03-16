@@ -41,6 +41,6 @@
     "tags": [
         "cache",
         "hash",
-        "in-memory"
+        "shared memory"
     ]
 }
