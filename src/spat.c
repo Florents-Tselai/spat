@@ -296,10 +296,7 @@ SpatDBEntry *spdb_find_or_insert(SpatDB *db, dss key, bool *found) {
     return entry;
 }
 
-bool spdb_delete_key(SpatDB *db, dss key);
-bool spdb_delete_key(SpatDB *db, dss key) {
-    return dshash_delete_key(db->g_htab, &key);
-}
+
 
 void spdb_release_lock(SpatDB *db, SpatDBEntry *entry);
 void spdb_release_lock(SpatDB *db, SpatDBEntry *entry) {
@@ -349,7 +346,7 @@ void _PG_init()
 {
     DefineCustomStringVariable("spat.db",
                                "Current DB name",
-                               "long desc here",
+                               "",
                                &g_guc_spat_db_name,
                                SPAT_NAME_DEFAULT,
                                PGC_USERSET, 0,
@@ -655,16 +652,65 @@ sptype(PG_FUNCTION_ARGS)
 
 }
 
+
+/* To delete an entry we attempt to find it first
+ * If its not found do nothing.
+ * If it's found though, it's not enought DEL the key,
+ * we also have to cleanup the value itself based on the value typee.
+ */
 PG_FUNCTION_INFO_V1(del);
 
 Datum
 del(PG_FUNCTION_ARGS)
 {
+    bool found = false;
     spat_attach_shmem();
 
     dss key = PG_GETARG_DSS(0);
 
-    bool found = spdb_delete_key(g_spat_db, key);
+    SPDB_LOCK_EXCLUSIVE(g_spat_db); /* sure about this ? */
+
+    /* Look up for the entry and if it's found lock it exclusively*/
+    SpatDBEntry *entry = spdb_find(g_spat_db, key, true);
+    if (entry) {
+        found = true;
+        /* we begin by cleaning up the value */
+
+        /* toggle on the valtype to clean up properly */
+        switch (entry->valtyp) {
+
+            case SPVAL_STRING: {
+                    dsa_free(g_spat_db->g_dsa, entry->value.string.str);
+                    break;
+            }
+
+            case SPVAL_LIST:{
+                    break;
+            }
+
+            case SPVAL_HASH: {
+                    break;
+            }
+
+            case SPVAL_SET:
+                {
+                    break;
+                }
+
+            case SPVAL_INVALID:
+            case SPVAL_NULL:
+            default:
+                break;
+        }
+        spdb_release_lock(g_spat_db, entry);
+        dshash_delete_key(g_spat_db->g_htab, &key);
+    }
+    else
+    {
+        /* key not found - do nothing*/
+        found = false;
+    }
+    SPDB_LOCK_RELEASE(g_spat_db)
 
     spat_detach_shmem();
     PG_RETURN_BOOL(found);
