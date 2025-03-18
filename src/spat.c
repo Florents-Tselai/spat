@@ -1336,10 +1336,31 @@ del(PG_FUNCTION_ARGS) {
 				break;
 		}
 
-		case SPVAL_SET:
-			{
+		case SPVAL_SET: {
+				/* Attach to the hash table */
+				dshash_table_handle htabhandl = entry->value.set.hndl;
+				dshash_table *htab = dshash_attach(g_spat_db->g_dsa, &params_hashset, htabhandl, NULL);
+
+				/* Iterate over all elements and delete them */
+				dshash_seq_status status;
+				dshash_seq_init(&status, htab, true);
+
+				while (dshash_seq_next(&status) != NULL) {
+					dshash_delete_current(&status);
+				}
+
+				/* Terminate sequence scan */
+				dshash_seq_term(&status);
+
+				/* Destroy the hash table */
+				dshash_destroy(htab);
+
+				/* Reset set metadata */
+				entry->value.set.hndl = InvalidDsaPointer;
+				entry->value.set.size = 0;
+
 				break;
-			}
+		}
 
 		case SPVAL_INVALID:
 		case SPVAL_NULL:
