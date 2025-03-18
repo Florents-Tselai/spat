@@ -1,8 +1,8 @@
-# spat: Redis-like In-Memory DB Embedded in PostgreSQL
+# spat: Redis-like In-Memory DB Embedded in Postgres
 
-![GitHub Stars](https://img.shields.io/github/stars/Florents-Tselai/spat)
 [![Github](https://img.shields.io/static/v1?label=GitHub&message=Repo&logo=GitHub&color=green)](https://github.com/Florents-Tselai/spat)
 [![Build Status](https://github.com/Florents-Tselai/spat/actions/workflows/build.yml/badge.svg)](https://github.com/Florents-Tselai/spat/actions)
+![GitHub Repo stars](https://img.shields.io/github/stars/Florents-Tselai/spat)
 [![Docker Pulls](https://img.shields.io/docker/pulls/florents/spat)](https://hub.docker.com/r/florents/spat)
 [![License](https://img.shields.io/github/license/Florents-Tselai/spat?color=blue)](https://github.com/Florents-Tselai/spat?tab=AGPL-3.0-1-ov-file#readme)
 [![Github Sponsors](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=green)](https://github.com/sponsors/Florents-Tselai/)
@@ -28,11 +28,20 @@ SELECT HGET('h1', 'f1'); -- Hello
 ```
 
 With **spat**:
-- You can share static - expensive data across your queries.
 - You don't need to maintain an external caching server. This greatly reduces complexity.
 - You can express powerful logic by embedding data structures like lists and sets
   in your SQL queries.
 - You can reduce your infrastructure costs by reusing server resources.
+
+## Motivation
+
+The goal is not to completely replace or recreate Redis within Postgres.
+Redis, however, has been proven to be (arguably) a tool that excels in the “20-80” rule:
+most use 20% of its available functionality to support the 80% of use cases.
+
+My aim is to provide Redis-like semantics and data structures within SQL,
+offering good enough functionality to support that critical 20% of use cases.
+This approach simplifies state and data sharing across queries without the need to manage a separate cache service alongside the primary database.
 
 ## Getting Started
 
@@ -225,7 +234,7 @@ You can also install it with [Docker](#docker)
 ```sh
 docker pull florents/spat:pg17
 # or
-docker pull florents/spat:0.1.0a0-pg17
+docker pull florents/spat:0.1.0a1-pg17
 ```
 
 ## ACID
@@ -233,7 +242,7 @@ docker pull florents/spat:0.1.0a0-pg17
 Since spat operates in PostgreSQL shared memory and not in regular tables,
 it won’t inherently follow standard transactional semantics like WAL logging, MVCC, or rollback.
 
-### Atomicity
+### Attomicity
 
 Since shared memory changes persist immediately, 
 a rollback won’t undo changes.
@@ -269,19 +278,9 @@ SELECT SPGET('key'); -- Will return 'A' even though Session 1 is uncommitted
 Since spat only lives in shared memory (no disk persistence **yet**), 
 data will be lost on server restart.
 
-## Motivation
-
-The goal is not to completely replace or recreate Redis within Postgres.
-Redis, however, has been proven to be (arguably) a tool that excels in the “20-80” rule:
-Most use 20% of its available functionality to support the 80% of use cases.
-
-I aim to provide Redis-like semantics and data structures within SQL,
-offering enough functionality to support that critical 20% of use cases.
-This approach simplifies state and data sharing across queries without the need to manage a separate cache service alongside the primary database.
-
 ## Background
 
-Spat relies on the following two features of Postgres:
+Spat relies on the two following features of Postgres
 
 - PG10 Introduced dynamic shared memory areas (DSA) in [13df76a](https://github.com/postgres/postgres/commit/13df76a)
 - PG17 Introduced the dynamic shared memory registry in [8b2bcf3](https://github.com/postgres/postgres/commit/8b2bcf3)
