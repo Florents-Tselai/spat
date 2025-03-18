@@ -7,6 +7,10 @@
 [![License](https://img.shields.io/github/license/Florents-Tselai/spat?color=blue)](https://github.com/Florents-Tselai/spat?tab=AGPL-3.0-1-ov-file#readme)
 [![Github Sponsors](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=green)](https://github.com/sponsors/Florents-Tselai/)
 
+> [!CAUTION]
+> This is stil in **alpha** and not production ready!
+> Read notes on [ACID](#ACID) below.
+
 **spat** is a Redis-like in-memory data structure server embedded in Postgres.
 Data is stored in Postgres shared memory.
 The data model is key-value.
@@ -32,16 +36,6 @@ With **spat**:
 - You can express powerful logic by embedding data structures like lists and sets
   in your SQL queries.
 - You can reduce your infrastructure costs by reusing server resources.
-
-## Motivation
-
-The goal is not to completely replace or recreate Redis within Postgres.
-Redis, however, has been proven to be (arguably) a tool that excels in the “20-80” rule:
-most use 20% of its available functionality to support the 80% of use cases.
-
-My aim is to provide Redis-like semantics and data structures within SQL,
-offering good enough functionality to support that critical 20% of use cases.
-This approach simplifies state and data sharing across queries without the need to manage a separate cache service alongside the primary database.
 
 ## Getting Started
 
@@ -234,18 +228,17 @@ You can also install it with [Docker](#docker)
 ```sh
 docker pull florents/spat:pg17
 # or
-docker pull florents/spat:0.1.0a2-pg17
+docker pull florents/spat:0.1.0.1.0a3-pg17
 ```
 
 ## ACID
+Since spat operates in PostgreSQL **shared memory**,
+it does not follow standard PostgreSQL **transactional semantics** (e.g., **MVCC, WAL, rollbacks**).
+Instead, it behaves similarly to an **in-memory key-value store** like **Redis**.
 
-Since spat operates in PostgreSQL shared memory and not in regular tables,
-it won’t inherently follow standard transactional semantics like WAL logging, MVCC, or rollback.
+### Atomicity
 
-### Attomicity
-
-Since shared memory changes persist immediately,
-a rollback won’t undo changes.
+Spat operations take effect **immediately** and cannot be rolled back.
 
 ```sql
 BEGIN;
@@ -253,30 +246,56 @@ SELECT SPSET('foo', 'bar');
 ROLLBACK;
 SELECT SPGET('foo'); -- Will still return 'bar'
 ```
+* Unlike regular PostgreSQL transactions, a ROLLBACK does not undo changes in spat.
+* Once a key is set, it remains in memory until explicitly deleted.
+
+### Consistency
+
+* spat ensures **internal consistency** by using **per-entry locks** to prevent data corruption during concurrent updates.
+* However, since it **bypasses WAL logging and MVCC**,
+its updates do not integrate with **PostgreSQL’s consistency guarantees**.
 
 ### Isolation
 
-PostgreSQL transactions don’t isolate shared memory changes like regular tables
+PostgreSQL **transactions do not isolate shared memory changes** like regular tables
 
 **Session 1**
 ```sql
 BEGIN;
 SELECT SPSET('key', 'A');
--- Keep transaction open
+-- Transaction remains open...
 ```
 
 **Session 2**
 ```sql
 BEGIN;
-SELECT SPGET('key'); -- Will return 'A' even though Session 1 is uncommitted
+SELECT SPGET('key'); -- Returns 'A', even though Session 1 hasn't committed
 ```
 
-### Concurrency
+* In a standard database, **Session 2** would not see uncommitted changes from **Session 1**.
+* With spat, changes are immediately **visible across all sessions**.
 
 ### Durability
 
-Since spat only lives in shared memory (no disk persistence **yet**),
-data will be lost on server restart.
+* Since spat is **entirely in shared memory, data is lost on restart**.
+* There is no disk persistence (yet), meaning:
+  * PostgreSQL crash or restart wipes all spat data.
+  * Unlike standard tables, spat **does not survive beyond the current instance.**
+
+### Concurrency
+
+* **Per-key locks** ensure that **only one session modifies a given key at a time**.
+* Multiple readers are allowed, but **a writer will block other writes**.
+
+## Motivation
+
+The goal is not to completely replace or recreate Redis within Postgres.
+Redis, however, has been proven to be (arguably) a tool that excels in the “20-80” rule:
+Most use 20% of its available functionality to support the 80% of use cases.
+
+I aim to provide Redis-like semantics and data structures within SQL,
+offering good enough functionality to support that critical 20% of use cases.
+This approach simplifies state and data sharing across queries without the need to manage a separate cache service alongside the primary database.
 
 ## Background
 
@@ -291,5 +310,3 @@ It supports dynamic resizing to prevent the linked lists from growing too long o
 Currently, only growing is supported: the hash table never becomes smaller.
 
 [//]: # (<img src="test/bench/plot.png" width="50%"/>)
-sts won’t apply in the same way.
-

@@ -1,11 +1,11 @@
 EXTENSION = spat
-EXTVERSION = 0.1.0a2
+EXTVERSION = 0.1.0a3
 
 MODULE_big = $(EXTENSION)
 OBJS = src/spat.o src/murmur3.o
 HEADERS = src/spat.h
 
-DATA = sql/spat--0.1.0a2.sql
+DATA = sql/spat--0.1.0a3.sql
 
 PG_CPPFLAGS = -DSPAT_MURMUR3=1
 PG_CFLAGS = -Wno-unused-function -Wno-unused-variable -Wno-declaration-after-statement
