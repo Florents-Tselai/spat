@@ -238,14 +238,13 @@ docker pull florents/spat:0.1.0a2-pg17
 ```
 
 ## ACID
+Since spat operates in PostgreSQL **shared memory**,
+it does not follow standard PostgreSQL **transactional semantics** (e.g., **MVCC, WAL, rollbacks**).
+Instead, it behaves similarly to an **in-memory key-value store** like **Redis**.
 
-Since spat operates in PostgreSQL shared memory and not in regular tables,
-it won’t inherently follow standard transactional semantics like WAL logging, MVCC, or rollback.
+### Atomicity
 
-### Attomicity
-
-Since shared memory changes persist immediately,
-a rollback won’t undo changes.
+Spat operations take effect **immediately** and cannot be rolled back.
 
 ```sql
 BEGIN;
@@ -253,30 +252,48 @@ SELECT SPSET('foo', 'bar');
 ROLLBACK;
 SELECT SPGET('foo'); -- Will still return 'bar'
 ```
+* Unlike regular PostgreSQL transactions, a ROLLBACK does not undo changes in spat.
+* Once a key is set, it remains in memory until explicitly deleted.
+
+### Consistency
+
+* spat ensures **internal consistency** by using **per-entry locks** to prevent data corruption during concurrent updates.
+* However, since it **bypasses WAL logging and MVCC**,
+its updates do not integrate with **PostgreSQL’s consistency guarantees**.
 
 ### Isolation
 
-PostgreSQL transactions don’t isolate shared memory changes like regular tables
+PostgreSQL **transactions do not isolate shared memory changes** like regular tables
 
 **Session 1**
 ```sql
 BEGIN;
 SELECT SPSET('key', 'A');
--- Keep transaction open
+-- Transaction remains open...
 ```
 
 **Session 2**
 ```sql
 BEGIN;
-SELECT SPGET('key'); -- Will return 'A' even though Session 1 is uncommitted
+SELECT SPGET('key'); -- Returns 'A', even though Session 1 hasn't committed
 ```
+
+* In a standard database, **Session 2** would not see uncommitted changes from **Session 1**.
+* With spat, changes are immediately **visible across all sessions**.
 
 ### Concurrency
 
+* **Per-key locks** ensure that **only one session modifies a given key at a time**.
+* Multiple readers are allowed, but **a writer will block other writes**.
+
 ### Durability
 
-Since spat only lives in shared memory (no disk persistence **yet**),
-data will be lost on server restart.
+* Since spat is **entirely in shared memory, data is lost on restart**.
+* There is no disk persistence (yet), meaning:
+  * PostgreSQL crash or restart wipes all spat data.
+  * Unlike standard tables, spat **does not survive beyond the current instance.**
+
+### Concurrency
 
 ## Background
 
