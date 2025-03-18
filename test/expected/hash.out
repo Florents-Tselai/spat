@@ -29,9 +29,21 @@ SELECT HGET('h1', 'f3'); -- NULL
  
 (1 row)
 
-SELECT HGET('h3', 'f1'); -- NULL
+SELECT HGET('h2', 'f1'); -- NULL - no previous HSET('h2')
  hget 
 ------
  
+(1 row)
+
+SELECT DEL('h1'); -- t
+ del 
+-----
+ t
+(1 row)
+
+SELECT DEL('h2'); -- f not exists
+ del 
+-----
+ f
 (1 row)
 

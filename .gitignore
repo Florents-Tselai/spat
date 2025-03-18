@@ -11,3 +11,6 @@
 *.log
 regression.*
 META.json
+/venv/
+/docs/_build
+*.*BAK

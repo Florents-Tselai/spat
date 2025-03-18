@@ -5,7 +5,7 @@
     "maintainer": [
         "Florents Tselai <florents.tselai@gmail.com>"
     ],
-    "license": "gpl_2",
+    "license": "agpl_3",
     "generated_by": "Florents Tselai",
     "release_status": "stable",
     "prereqs": {
@@ -24,6 +24,7 @@
         }
     },
     "resources": {
+        "homepage": "https://github.com/Florents-Tselai/spat",
         "bugtracker": {
             "web": "https://github.com/Florents-Tselai/spat/issues"
         },
@@ -40,6 +41,6 @@
     "tags": [
         "cache",
         "hash",
-        "in-memory"
+        "shared memory"
     ]
 }

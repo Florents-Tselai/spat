@@ -193,3 +193,22 @@ SELECT SPGET('set1');
  set (2)
 (1 row)
 
+-- DEL set
+SELECT DEL('set1');
+ del 
+-----
+ t
+(1 row)
+
+SELECT DEL('set2');
+ del 
+-----
+ t
+(1 row)
+
+SELECT DEL('set404');
+ del 
+-----
+ f
+(1 row)
+
