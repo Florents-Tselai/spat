@@ -1,14 +1,13 @@
-# spat: Redis-like In-Memory DB Embedded in Postgres
+# spat: Redis-like In-Memory Cache Embedded in PostgreSQL
 
+![GitHub Repo stars](https://img.shields.io/github/stars/Florents-Tselai/spat)
 [![Github](https://img.shields.io/static/v1?label=GitHub&message=Repo&logo=GitHub&color=green)](https://github.com/Florents-Tselai/spat)
 [![Build Status](https://github.com/Florents-Tselai/spat/actions/workflows/build.yml/badge.svg)](https://github.com/Florents-Tselai/spat/actions)
-![GitHub Repo stars](https://img.shields.io/github/stars/Florents-Tselai/spat)
 [![Docker Pulls](https://img.shields.io/docker/pulls/florents/spat)](https://hub.docker.com/r/florents/spat)
 [![License](https://img.shields.io/github/license/Florents-Tselai/spat?color=blue)](https://github.com/Florents-Tselai/spat?tab=AGPL-3.0-1-ov-file#readme)
 [![Github Sponsors](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=green)](https://github.com/sponsors/Florents-Tselai/)
 
-**spat** is a Redis-like in-memory data structure server embedded in Postgres.
-Data is stored in Postgres shared memory.
+**spat** is a Redis-like in-memory cache server embedded in PostgreSQL shared memory.
 The data model is key-value.
 Keys are strings, but values can be strings, lists, sets, or hashes.
 
@@ -33,16 +32,6 @@ With **spat**:
   in your SQL queries.
 - You can reduce your infrastructure costs by reusing server resources.
 
-## Motivation
-
-The goal is not to completely replace or recreate Redis within Postgres.
-Redis, however, has been proven to be (arguably) a tool that excels in the “20-80” rule:
-most use 20% of its available functionality to support the 80% of use cases.
-
-My aim is to provide Redis-like semantics and data structures within SQL,
-offering good enough functionality to support that critical 20% of use cases.
-This approach simplifies state and data sharing across queries without the need to manage a separate cache service alongside the primary database.
-
 ## Getting Started
 
 To quickly get a Spat instance up and running, pull and run the latest Docker image:
@@ -51,19 +40,19 @@ To quickly get a Spat instance up and running, pull and run the latest Docker im
 docker run --name spat -e POSTGRES_PASSWORD=password florents/spat:pg17
 ```
 
-This will start a Spat instance with default user postgres and password password. You can then connect to the database using psql:
+This will start a **spat** instance with the default user `postgres` and password `password`. You can then connect to the database using psql:
 
 ```bash
 docker exec -it spat psql -U postgres
 ```
 
-Then install the extension
+Then, install the extension
 
 ```tsql
 CREATE EXTENSION spat;
 ```
 
-For other installation optionse see [Installation](#Installation)
+For other installation options see [Installation](#Installation)
 
 ## Usage
 
@@ -73,8 +62,8 @@ For other installation optionse see [Installation](#Installation)
 
 spat `key`s are always `text`.
 
-Values can be strings (aka `text` Postgres type) or data structures containing strings (sets, lists etc.).
-You can, however, pass `anyelement` to `SPSET,` and the value will be stored as a string according to the type's textual representation.
+Values can be strings (aka `text` Postgres type) or data structures containing strings (sets, lists, etc.).
+However, you can pass' any element` to `SPSET,` and the value will be stored as a string according to the type's textual representation.
 
 For example, to cache a `jsonb` object and get it back, you can do something like:
 
@@ -86,7 +75,7 @@ SELECT SPGET('k')::text::jsonb;
 
 If the value stored for a key is not a string,
 it will return a human-friendly representation of the value.
-Usually the data structure type and its current size.
+Usually, the data structure type and its current size.
 
 ### Strings
 
@@ -278,6 +267,16 @@ SELECT SPGET('key'); -- Will return 'A' even though Session 1 is uncommitted
 Since spat only lives in shared memory (no disk persistence **yet**), 
 data will be lost on server restart.
 
+## Motivation
+
+The goal is not to completely replace or recreate Redis within Postgres.
+Redis, however, has been proven to be (arguably) a tool that excels in the “20-80” rule:
+Most use 20% of its available functionality to support the 80% of use cases.
+
+I aim to provide Redis-like semantics and data structures within SQL,
+offering good enough functionality to support that critical 20% of use cases.
+This approach simplifies state and data sharing across queries without the need to manage a separate cache service alongside the primary database.
+
 ## Background
 
 Spat relies on the two following features of Postgres
@@ -291,5 +290,3 @@ It supports dynamic resizing to prevent the linked lists from growing too long o
 Currently, only growing is supported: the hash table never becomes smaller.
 
 [//]: # (<img src="test/bench/plot.png" width="50%"/>)
-sts won’t apply in the same way.
-
