@@ -233,7 +233,7 @@ You can also install it with [Docker](#docker)
 
 ```sh
 docker pull florents/spat:pg17
-# or
+# or specify 
 docker pull florents/spat:0.1.0a2-pg17
 ```
 
@@ -281,11 +281,6 @@ SELECT SPGET('key'); -- Returns 'A', even though Session 1 hasn't committed
 * In a standard database, **Session 2** would not see uncommitted changes from **Session 1**.
 * With spat, changes are immediately **visible across all sessions**.
 
-### Concurrency
-
-* **Per-key locks** ensure that **only one session modifies a given key at a time**.
-* Multiple readers are allowed, but **a writer will block other writes**.
-
 ### Durability
 
 * Since spat is **entirely in shared memory, data is lost on restart**.
@@ -295,9 +290,12 @@ SELECT SPGET('key'); -- Returns 'A', even though Session 1 hasn't committed
 
 ### Concurrency
 
+* **Per-key locks** ensure that **only one session modifies a given key at a time**.
+* Multiple readers are allowed, but **a writer will block other writes**.
+* 
 ## Background
 
-Spat relies on the two following features of Postgres
+Spat relies on the two following features of PostgreSQL.
 
 - PG10 Introduced dynamic shared memory areas (DSA) in [13df76a](https://github.com/postgres/postgres/commit/13df76a)
 - PG17 Introduced the dynamic shared memory registry in [8b2bcf3](https://github.com/postgres/postgres/commit/8b2bcf3)
