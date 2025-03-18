@@ -21,3 +21,7 @@ SELECT LPOP('list1'); -- null
 SELECT LLEN('list1'); -- 0
 
 SELECT SPGET('list1');
+
+SELECT DEL('list1');
+
+SELECT DEL('list404');

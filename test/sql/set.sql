@@ -41,3 +41,8 @@ SELECT SADD('set1', 'elem1');
 SELECT SADD('set1', 'elem2');
 
 SELECT SPGET('set1');
+
+-- DEL set
+SELECT DEL('set1');
+SELECT DEL('set2');
+SELECT DEL('set404');

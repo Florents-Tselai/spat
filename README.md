@@ -2,6 +2,7 @@
 
 [![Github](https://img.shields.io/static/v1?label=GitHub&message=Repo&logo=GitHub&color=green)](https://github.com/Florents-Tselai/spat)
 [![Build Status](https://github.com/Florents-Tselai/spat/actions/workflows/build.yml/badge.svg)](https://github.com/Florents-Tselai/spat/actions)
+![GitHub Repo stars](https://img.shields.io/github/stars/Florents-Tselai/spat)
 [![Docker Pulls](https://img.shields.io/docker/pulls/florents/spat)](https://hub.docker.com/r/florents/spat)
 [![License](https://img.shields.io/github/license/Florents-Tselai/spat?color=blue)](https://github.com/Florents-Tselai/spat?tab=AGPL-3.0-1-ov-file#readme)
 [![Github Sponsors](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=green)](https://github.com/sponsors/Florents-Tselai/)
@@ -13,30 +14,33 @@ Keys are strings, but values can be strings, lists, sets, or hashes.
 
 ```sql
 SELECT SPSET('key', 'value');
-SELECT SPGET('key');
+SELECT SPGET('key'); -- value
+
+SELECT LPUSH('list1', 'elem1');
+SELECT LPUSH('list1', 'elem2');
+SELECT LPOP('list1'); -- elem2
 
 SELECT SADD('set1', 'elem1', 'elem2');
 SELECT SISMEMBER('set1', 'elem1'); -- t
 
-SELECT LPUSH('list1', 'elem1');
-SELECT LPUSH('list1', 'elem2');
-SELECT LPOP('list1')
+SELECT HSET('h1', 'f1', 'Hello');
+SELECT HGET('h1', 'f1'); -- Hello
 ```
 
 With **spat**:
 - You don't need to maintain an external caching server. This greatly reduces complexity.
 - You can express powerful logic by embedding data structures like lists and sets
-in your SQL queries.
+  in your SQL queries.
 - You can reduce your infrastructure costs by reusing server resources.
 
 ## Motivation
 
-The goal is not to completely replace or recreate Redis within Postgres. 
+The goal is not to completely replace or recreate Redis within Postgres.
 Redis, however, has been proven to be (arguably) a tool that excels in the “20-80” rule:
-most use 20% of its available functionality to support the 80% of use cases. 
+most use 20% of its available functionality to support the 80% of use cases.
 
-My aim is to provide Redis-like semantics and data structures within SQL, 
-offering good enough functionality to support that critical 20% of use cases. 
+My aim is to provide Redis-like semantics and data structures within SQL,
+offering good enough functionality to support that critical 20% of use cases.
 This approach simplifies state and data sharing across queries without the need to manage a separate cache service alongside the primary database.
 
 ## Getting Started
@@ -61,13 +65,13 @@ CREATE EXTENSION spat;
 
 For other installation optionse see [Installation](#Installation)
 
-## Usage 
+## Usage
 
 > [!TIP]
 > Development follows roughly TDD principles,
 > thus, the best and most up-to-date documentation are the test cases in [test/sql](test/sql)
 
-spat `key`s are always `text`. 
+spat `key`s are always `text`.
 
 Values can be strings (aka `text` Postgres type) or data structures containing strings (sets, lists etc.).
 You can, however, pass `anyelement` to `SPSET,` and the value will be stored as a string according to the type's textual representation.
@@ -88,7 +92,7 @@ Usually the data structure type and its current size.
 
 `SPSET(key, value[, echo bool, ttl interval]) → spval`
 
-Set key to hold the value. 
+Set key to hold the value.
 If key already holds a value, it is overwritten, regardless of its type.
 Any previous time to live associated with the key is discarded on successful SET operation.
 The optional `ttl` sets the TTL interval.
@@ -96,16 +100,16 @@ Returns the value if `echo` is set. If not (the default), the function returns N
 
 `SPGET(key) → text`
 
-Get the value of key. 
-If the key does not exist NULL is returned. 
+Get the value of key.
+If the key does not exist NULL is returned.
 An error is returned if the value stored at key is not a string, because GET only handles string values.
 
 ### Sets
 
 `SADD(key, member) → int`
 
-Add the specified members to the set stored at key. 
-Specified members that are already a member of this set are ignored. 
+Add the specified members to the set stored at key.
+Specified members that are already a member of this set are ignored.
 If key does not exist, a new set is created before adding the specified members.
 Returns the number of elements that were added to the set, not including all the elements already present in the set.
 An error is returned when the value stored at key is not a set
@@ -116,8 +120,8 @@ Returns if `member` is a member of the set stored at `key`.
 
 `SREM(key, member) → int`
 
-Remove the specified members from the set stored at key. 
-Specified members that are not a member of this set are ignored. 
+Remove the specified members from the set stored at key.
+Specified members that are not a member of this set are ignored.
 If key does not exist, it is treated as an empty set and this command returns 0.
 Returns the number of members that were removed from the set, not including non existing members.
 An error is returned when the value stored at key is not a set.
@@ -131,8 +135,8 @@ or 0 if the key does not exist.
 
 `LPUSH(key, element) → int`
 
-Insert all the specified values at the head of the list stored at key. 
-If key does not exist, it is created as empty list before performing the push operations. 
+Insert all the specified values at the head of the list stored at key.
+If key does not exist, it is created as empty list before performing the push operations.
 Returns the length of the list after the push operation.
 When key holds a value that is not a list, an error is returned.
 
@@ -160,13 +164,13 @@ Returns the value associated with field in the hash stored at key.
 
 `SPTYPE(key) → text`
 
-Returns the string representation of the type of the value stored at key. 
+Returns the string representation of the type of the value stored at key.
 The different types that can be returned are: string, list, set, and hash.
 Returns `NULL` when key doesn't exist.
 
 `DEL(key) → boolean`
 
-Remove an entry by key. 
+Remove an entry by key.
 Returns true if the key was found and the corresponding entry was removed.
 
 `TTL(key) → interval`
@@ -187,7 +191,7 @@ Returns the current number of entries in the database.
 
 Size of the database in bytes and in human-friendly text.
 
-### Multiple DBs 
+### Multiple DBs
 
 A spat database is just a segment of Postgres' memory addressable by a name.
 You can switch between different databases (namespaces really),
@@ -206,11 +210,6 @@ SET spat.db = 'spat-default';
 
 ## Installation
 
-> [!CAUTION]
-> This is not ready for production.
-> Delete operations especially can leave some clutter behind,
-> but a server restart should clean them up.
-
 Compile and install the extension (supports Postgres 17+)
 
 ```sh
@@ -220,7 +219,7 @@ cd spat
 make
 make install # may need sudo
 ```
-### MurmurHash3 
+### MurmurHash3
 
 To use the MurmurHash3 hashing algorithm instead of Postgres' default (`tag_hash`)
 
@@ -235,8 +234,49 @@ You can also install it with [Docker](#docker)
 ```sh
 docker pull florents/spat:pg17
 # or
-docker pull florents/spat:0.1.0a0-pg17
+docker pull florents/spat:0.1.0a1-pg17
 ```
+
+## ACID
+
+Since spat operates in PostgreSQL shared memory and not in regular tables,
+it won’t inherently follow standard transactional semantics like WAL logging, MVCC, or rollback.
+
+### Attomicity
+
+Since shared memory changes persist immediately, 
+a rollback won’t undo changes.
+
+```sql
+BEGIN;
+SELECT SPSET('foo', 'bar');
+ROLLBACK;
+SELECT SPGET('foo'); -- Will still return 'bar'
+```
+
+### Isolation
+
+PostgreSQL transactions don’t isolate shared memory changes like regular tables
+
+**Session 1**
+```sql
+BEGIN;
+SELECT SPSET('key', 'A');
+-- Keep transaction open
+```
+
+**Session 2**
+```sql
+BEGIN;
+SELECT SPGET('key'); -- Will return 'A' even though Session 1 is uncommitted
+```
+
+### Concurrency
+
+### Durability
+
+Since spat only lives in shared memory (no disk persistence **yet**), 
+data will be lost on server restart.
 
 ## Background
 
@@ -245,9 +285,11 @@ Spat relies on the two following features of Postgres
 - PG10 Introduced dynamic shared memory areas (DSA) in [13df76a](https://github.com/postgres/postgres/commit/13df76a)
 - PG17 Introduced the dynamic shared memory registry in [8b2bcf3](https://github.com/postgres/postgres/commit/8b2bcf3)
 
-Internally, it stores its data in a `dshash`: 
+Internally, it stores its data in a `dshash`:
 This is an open hashing hash table with a linked list at each table entry.  
 It supports dynamic resizing to prevent the linked lists from growing too long on average.  
 Currently, only growing is supported: the hash table never becomes smaller.
 
 [//]: # (<img src="test/bench/plot.png" width="50%"/>)
+sts won’t apply in the same way.
+

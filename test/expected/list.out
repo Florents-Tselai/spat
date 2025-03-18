@@ -84,3 +84,15 @@ SELECT SPGET('list1');
  list (0)
 (1 row)
 
+SELECT DEL('list1');
+ del 
+-----
+ t
+(1 row)
+
+SELECT DEL('list404');
+ del 
+-----
+ f
+(1 row)
+
