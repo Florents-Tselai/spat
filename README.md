@@ -234,7 +234,7 @@ You can also install it with [Docker](#docker)
 ```sh
 docker pull florents/spat:pg17
 # or
-docker pull florents/spat:0.1.0a1-pg17
+docker pull florents/spat:0.1.0a2-pg17
 ```
 
 ## ACID
@@ -244,7 +244,7 @@ it won’t inherently follow standard transactional semantics like WAL logging, 
 
 ### Attomicity
 
-Since shared memory changes persist immediately, 
+Since shared memory changes persist immediately,
 a rollback won’t undo changes.
 
 ```sql
@@ -275,7 +275,7 @@ SELECT SPGET('key'); -- Will return 'A' even though Session 1 is uncommitted
 
 ### Durability
 
-Since spat only lives in shared memory (no disk persistence **yet**), 
+Since spat only lives in shared memory (no disk persistence **yet**),
 data will be lost on server restart.
 
 ## Background
@@ -286,8 +286,8 @@ Spat relies on the two following features of Postgres
 - PG17 Introduced the dynamic shared memory registry in [8b2bcf3](https://github.com/postgres/postgres/commit/8b2bcf3)
 
 Internally, it stores its data in a `dshash`:
-This is an open hashing hash table with a linked list at each table entry.  
-It supports dynamic resizing to prevent the linked lists from growing too long on average.  
+This is an open hashing hash table with a linked list at each table entry.
+It supports dynamic resizing to prevent the linked lists from growing too long on average.
 Currently, only growing is supported: the hash table never becomes smaller.
 
 [//]: # (<img src="test/bench/plot.png" width="50%"/>)
