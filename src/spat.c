@@ -1332,7 +1332,28 @@ del(PG_FUNCTION_ARGS) {
 				break;
 		}
 
-		case SPVAL_HASH:{
+		case SPVAL_HASH: {
+				/* Attach to the hash table */
+				dshash_table_handle htabhandl = entry->value.hash.hndl;
+				dshash_table *htab = dshash_attach(g_spat_db->g_dsa, &sphash_params, htabhandl, NULL);
+
+				/* Iterate over all elements and delete them */
+				dshash_seq_status status;
+				dshash_seq_init(&status, htab, true);
+
+				while (dshash_seq_next(&status) != NULL) {
+					dshash_delete_current(&status);
+				}
+
+				dshash_seq_term(&status);
+
+				/* Destroy the hash table */
+				dshash_destroy(htab);
+
+				/* Reset hash metadata */
+				entry->value.hash.hndl = InvalidDsaPointer;
+				entry->value.hash.size = 0;
+
 				break;
 		}
 

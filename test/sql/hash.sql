@@ -7,5 +7,7 @@ SELECT HGET('h1', 'f1'); -- Hello
 SELECT HGET('h1', 'f2'); -- World
 SELECT HGET('h1', 'f3'); -- NULL
 
+SELECT HGET('h2', 'f1'); -- NULL - no previous HSET('h2')
 
-SELECT HGET('h3', 'f1'); -- NULL
+SELECT DEL('h1'); -- t
+SELECT DEL('h2'); -- f not exists
