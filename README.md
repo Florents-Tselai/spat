@@ -7,11 +7,6 @@
 [![License](https://img.shields.io/github/license/Florents-Tselai/spat?color=blue)](https://github.com/Florents-Tselai/spat?tab=AGPL-3.0-1-ov-file#readme)
 [![Github Sponsors](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=green)](https://github.com/sponsors/Florents-Tselai/)
 
-> [!CAUTION]
-> Don't use in production (yet)!
-> Delete operations especially can leave some clutter behind,
-> but a server restart should clean them up.
-
 **spat** is a Redis-like in-memory data structure server embedded in Postgres.
 Data is stored in Postgres shared memory.
 The data model is key-value.
