@@ -33,12 +33,22 @@ With **spat**:
   in your SQL queries.
 - You can reduce your infrastructure costs by reusing server resources.
 
+## Motivation
+
+The goal is not to completely replace or recreate Redis within Postgres.
+Redis, however, has been proven to be (arguably) a tool that excels in the “20-80” rule:
+most use 20% of its available functionality to support the 80% of use cases.
+
+My aim is to provide Redis-like semantics and data structures within SQL,
+offering good enough functionality to support that critical 20% of use cases.
+This approach simplifies state and data sharing across queries without the need to manage a separate cache service alongside the primary database.
+
 ## Getting Started
 
 To quickly get a Spat instance up and running, pull and run the latest Docker image:
 
 ```bash
-docker run --name spat -e POSTGRES_PASSWORD=password florents/spat
+docker run --name spat -e POSTGRES_PASSWORD=password florents/spat:pg17
 ```
 
 This will start a Spat instance with default user postgres and password password. You can then connect to the database using psql:
@@ -47,7 +57,7 @@ This will start a Spat instance with default user postgres and password password
 docker exec -it spat psql -U postgres
 ```
 
-Then, install the extension.
+Then install the extension
 
 ```tsql
 CREATE EXTENSION spat;
@@ -76,7 +86,7 @@ SELECT SPGET('k')::text::jsonb;
 
 If the value stored for a key is not a string,
 it will return a human-friendly representation of the value.
-Usually, the data structure type and its current size.
+Usually the data structure type and its current size.
 
 ### Strings
 
@@ -223,8 +233,8 @@ You can also install it with [Docker](#docker)
 
 ```sh
 docker pull florents/spat:pg17
-# or specify 
-docker pull florents/spat:0.1.0a2-pg17
+# or
+docker pull florents/spat:0.1.0.1.0a3-pg17
 ```
 
 ## ACID
@@ -253,7 +263,7 @@ its updates do not integrate with **PostgreSQL’s consistency guarantees**.
 
 ### Isolation
 
-PostgreSQL **transactions do not isolate shared memory changes** like regular tables.
+PostgreSQL **transactions do not isolate shared memory changes** like regular tables
 
 **Session 1**
 ```sql
@@ -271,6 +281,11 @@ SELECT SPGET('key'); -- Returns 'A', even though Session 1 hasn't committed
 * In a standard database, **Session 2** would not see uncommitted changes from **Session 1**.
 * With spat, changes are immediately **visible across all sessions**.
 
+### Concurrency
+
+* **Per-key locks** ensure that **only one session modifies a given key at a time**.
+* Multiple readers are allowed, but **a writer will block other writes**.
+
 ### Durability
 
 * Since spat is **entirely in shared memory, data is lost on restart**.
@@ -280,22 +295,10 @@ SELECT SPGET('key'); -- Returns 'A', even though Session 1 hasn't committed
 
 ### Concurrency
 
-* **Per-key locks** ensure that **only one session modifies a given key at a time**.
-* Multiple readers are allowed, but **a writer will block other writes**.
-
-## Motivation
-
-The goal is not to completely replace or recreate Redis within Postgres.
-Redis, however, has been proven to be (arguably) a tool that excels in the “20-80” rule:
-Most use 20% of its available functionality to support the 80% of use cases.
-
-I aim to provide Redis-like semantics and data structures within SQL,
-offering good enough functionality to support that critical 20% of use cases.
-This approach simplifies state and data sharing across queries without the need to manage a separate cache service alongside the primary database.
 
 ## Background
 
-Spat relies on the following two features of PostgreSQL:
+Spat relies on the two following features of Postgres
 
 - PG10 Introduced dynamic shared memory areas (DSA) in [13df76a](https://github.com/postgres/postgres/commit/13df76a)
 - PG17 Introduced the dynamic shared memory registry in [8b2bcf3](https://github.com/postgres/postgres/commit/8b2bcf3)
@@ -306,3 +309,5 @@ It supports dynamic resizing to prevent the linked lists from growing too long o
 Currently, only growing is supported: the hash table never becomes smaller.
 
 [//]: # (<img src="test/bench/plot.png" width="50%"/>)
+sts won’t apply in the same way.
+

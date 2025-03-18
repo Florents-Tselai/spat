@@ -1,7 +1,7 @@
 {
     "name": "spat",
     "abstract": "Redis-like In-Memory DB Embedded in PostgreSQL",
-    "version": "0.1.0a2",
+    "version": "0.1.0.1.0a3",
     "maintainer": [
         "Florents Tselai <florents.tselai@gmail.com>"
     ],
@@ -17,9 +17,9 @@
     },
     "provides": {
         "spat": {
-            "file": "sql/spat--0.1.0a2.sql",
+            "file": "sql/spat--0.1.0.1.0a3.sql",
             "docfile": "README.md",
-            "version": "0.1.0a2",
+            "version": "0.1.0.1.0a3",
             "abstract": "Redis-like in-memory database embedded in Postgres"
         }
     },
