@@ -1,11 +1,10 @@
 # spat: Redis-like In-Memory DB Embedded in Postgres
 
+![GitHub Repo stars](https://img.shields.io/github/stars/Florents-Tselai/spat)
 [![Github](https://img.shields.io/static/v1?label=GitHub&message=Repo&logo=GitHub&color=green)](https://github.com/Florents-Tselai/spat)
 [![Build Status](https://github.com/Florents-Tselai/spat/actions/workflows/build.yml/badge.svg)](https://github.com/Florents-Tselai/spat/actions)
-![GitHub Repo stars](https://img.shields.io/github/stars/Florents-Tselai/spat)
 [![Docker Pulls](https://img.shields.io/docker/pulls/florents/spat)](https://hub.docker.com/r/florents/spat)
 [![License](https://img.shields.io/github/license/Florents-Tselai/spat?color=blue)](https://github.com/Florents-Tselai/spat?tab=AGPL-3.0-1-ov-file#readme)
-[![Github Sponsors](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=green)](https://github.com/sponsors/Florents-Tselai/)
 
 > [!CAUTION]
 > This is stil in **alpha** and not production ready!
@@ -309,5 +308,36 @@ Internally, it stores its data in a `dshash`:
 This is an open hashing hash table with a linked list at each table entry.
 It supports dynamic resizing to prevent the linked lists from growing too long on average.
 Currently, only growing is supported: the hash table never becomes smaller.
+
+## FAQ
+
+**What is Spat?**
+
+Spat is a Redis-like in-memory data structure server embedded in PostgreSQL, utilizing PostgreSQL's dynamic shared memory (DSA) to store and manage key-value pairs.
+
+**How does Spat differ from Redis?**
+
+Unlike Redis, which is a standalone in-memory data store, Spat operates entirely within PostgreSQL. 
+
+**Can I use Spat for caching?**
+
+Yes. Since Spat stores data in memory, it is well-suited for caching scenarios where frequent access to key-value data is required.
+
+**Does Spat persist data?**
+
+No. Currently, Spat does not provide built-in persistence, meaning data is lost when PostgreSQL is restarted.
+
+**Can I use Spat with multiple PostgreSQL sessions?**
+
+Yes. Since Spat operates in shared memory, multiple PostgreSQL sessions can read and write to Spat concurrently.
+
+**Is there a limit to how much data Spat can store?**
+
+Spat’s storage capacity depends on PostgreSQL’s shared memory configuration (shared_buffers, work_mem, etc.). 
+You can adjust these settings based on your workload.
+
+**How ACID-compliant is this ?**
+
+Enough. But maybe not enough for you. See [ACID](#ACID)
 
 [//]: # (<img src="test/bench/plot.png" width="50%"/>)
