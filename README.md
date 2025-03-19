@@ -33,6 +33,7 @@ SELECT HGET('h1', 'f1'); -- Hello
 
 With **spat**:
 - You don't need to maintain an external caching server. This greatly reduces complexity.
+- You can cache and share expensive or static data across SQL queries without having to model them relationally.
 - You can express powerful logic by embedding data structures like lists and sets
   in your SQL queries.
 - You can reduce your infrastructure costs by reusing server resources.
