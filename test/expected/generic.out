@@ -121,19 +121,6 @@ SELECT SPGET('key1');
  
 (1 row)
 
--- TTL
-SELECT SPSET('expkey1', 'expvalue1', ttl=> '1 second');
-   spset   
------------
- expvalue1
-(1 row)
-
-SELECT TTL('expkey1') < '1 second' ;
- ?column? 
-----------
- t
-(1 row)
-
 -- DB SIZE BYTES
 SELECT SP_DB_SIZE_BYTES();
  sp_db_size_bytes 
