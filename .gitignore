@@ -14,3 +14,7 @@ META.json
 /venv/
 /docs/_build
 *.*BAK
+*.pdf
+*.html
+*.mk
+*.dev.md

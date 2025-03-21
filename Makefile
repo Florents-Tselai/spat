@@ -14,7 +14,7 @@ TESTS = $(wildcard test/sql/*.sql)
 REGRESS = $(patsubst test/sql/%.sql,%,$(TESTS))
 REGRESS_OPTS = --inputdir=test --load-extension=$(EXTENSION)
 
-EXTRA_CLEAN = *.log dist gprof
+EXTRA_CLEAN = *.log dist gprof *.c.BAK *.html *.pdf *.rdb
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
