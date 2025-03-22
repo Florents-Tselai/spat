@@ -226,9 +226,9 @@ You can also install it with [Docker](#docker)
 ### Docker
 
 ```sh
-docker pull florents/spat:pg17
-# or
-docker pull florents/spat:0.1.0.1.0a3-pg17
+docker pull florents/spat
+# or with explicit version
+docker pull florents/spat:0.1.0a4-pg17
 ```
 
 ## ACID
@@ -317,7 +317,7 @@ Spat is a Redis-like in-memory data structure server embedded in PostgreSQL, uti
 
 **How does Spat differ from Redis?**
 
-Unlike Redis, which is a standalone in-memory data store, Spat operates entirely within PostgreSQL. 
+Unlike Redis, which is a standalone in-memory data store, Spat operates entirely within PostgreSQL.
 
 **Can I use Spat for caching?**
 
@@ -333,7 +333,7 @@ Yes. Since Spat operates in shared memory, multiple PostgreSQL sessions can read
 
 **Is there a limit to how much data Spat can store?**
 
-Spat’s storage capacity depends on PostgreSQL’s shared memory configuration (shared_buffers, work_mem, etc.). 
+Spat’s storage capacity depends on PostgreSQL’s shared memory configuration (shared_buffers, work_mem, etc.).
 You can adjust these settings based on your workload.
 
 **How ACID-compliant is this ?**

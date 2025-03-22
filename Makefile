@@ -1,11 +1,11 @@
 EXTENSION = spat
-EXTVERSION = 0.1.0a3
+EXTVERSION = 0.1.0a4
 
 MODULE_big = $(EXTENSION)
 OBJS = src/spat.o
 HEADERS = src/spat.h
 
-DATA = sql/spat--0.1.0a3.sql
+DATA = sql/spat--0.1.0a4.sql
 
 PG_CPPFLAGS =
 
