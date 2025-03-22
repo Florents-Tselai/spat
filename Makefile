@@ -2,19 +2,25 @@ EXTENSION = spat
 EXTVERSION = 0.1.0a3
 
 MODULE_big = $(EXTENSION)
-OBJS = src/spat.o src/murmur3.o
+OBJS = src/spat.o
 HEADERS = src/spat.h
 
 DATA = sql/spat--0.1.0a3.sql
 
-PG_CPPFLAGS = -DSPAT_MURMUR3=1
+PG_CPPFLAGS =
+
+ifdef WITH_MURMUR3
+OBJS += src/murmur3.o
+PG_CPPFLAGS += -DSPAT_MURMUR3=1
+endif
+
 PG_CFLAGS = -Wno-unused-function -Wno-unused-variable -Wno-declaration-after-statement
 
 TESTS = $(wildcard test/sql/*.sql)
 REGRESS = $(patsubst test/sql/%.sql,%,$(TESTS))
 REGRESS_OPTS = --inputdir=test --load-extension=$(EXTENSION)
 
-EXTRA_CLEAN = *.log dist gprof
+EXTRA_CLEAN = *.log dist gprof *.c.BAK *.html *.pdf *.rdb
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)

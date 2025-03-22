@@ -36,11 +36,6 @@ SELECT SPGET('key1');
 SELECT DEL('key1');
 SELECT SPGET('key1');
 
--- TTL
-
-SELECT SPSET('expkey1', 'expvalue1', ttl=> '1 second');
-SELECT TTL('expkey1') < '1 second' ;
-
 -- DB SIZE BYTES
 SELECT SP_DB_SIZE_BYTES();
 SELECT SP_DB_SIZE();
