@@ -1,0 +1,17 @@
+SET spat.db = 'test-spat';
+
+SELECT SPSET('k0', 'v0');
+SELECT SPSET('k1', 'v1');
+SELECT SPSET('k2', 'v2');
+
+SELECT SPGET('k0');
+SELECT SPGET('k1');
+SELECT SPGET('k2');
+
+SELECT DEL('k0');
+SELECT DEL('k1');
+SELECT DEL('k2');
+
+SELECT SPGET('k0');
+SELECT SPGET('k1');
+SELECT SPGET('k2');
