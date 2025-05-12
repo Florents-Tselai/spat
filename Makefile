@@ -1,11 +1,11 @@
 EXTENSION = spat
-EXTVERSION = 0.1.0a4
+EXTVERSION = 0.1.0a5
 
 MODULE_big = $(EXTENSION)
 OBJS = src/spat.o
 HEADERS = src/spat.h
 
-DATA = sql/spat--0.1.0a4.sql
+DATA = sql/spat--0.1.0a5.sql
 
 PG_CPPFLAGS =
 
@@ -65,3 +65,13 @@ start-db:
 	postgres -D $(PGDATA)
 
 dev: restart-db uninstall clean all install installcheck restart-db
+
+ARTIFACTS = pgconf.dev.html pgconf.dev.pdf
+%.pdf: %.md
+	pandoc $^ -o $@ --pdf-engine=lualatex
+
+THEME = solarized
+%.html: %.md
+	pandoc $^ -o $@ --to revealjs --standalone --variable revealjs-url=https://cdn.jsdelivr.net/npm/reveal.js --variable theme=$(THEME)
+
+pgext.day: spat-pgextday.html spat-pgextday.pdf
