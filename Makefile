@@ -16,9 +16,9 @@ endif
 
 PG_CFLAGS = -Wno-unused-function -Wno-unused-variable -Wno-declaration-after-statement
 
-TESTS = $(wildcard test/sql/*.sql)
-REGRESS = $(patsubst test/sql/%.sql,%,$(TESTS))
-REGRESS_OPTS = --inputdir=test --load-extension=$(EXTENSION)
+TESTS = $(wildcard test/regress/sql/*.sql)
+REGRESS = $(patsubst test/regress/sql/%.sql,%,$(TESTS))
+REGRESS_OPTS = --inputdir=test/regress --load-extension=$(EXTENSION)
 
 EXTRA_CLEAN = *.log dist gprof *.c.BAK *.html *.pdf *.rdb
 
