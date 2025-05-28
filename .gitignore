@@ -18,3 +18,4 @@ META.json
 *.html
 *.mk
 *.dev.md
+output_iso/

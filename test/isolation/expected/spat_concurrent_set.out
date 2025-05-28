@@ -1,0 +1,15 @@
+Parsed test spec with 2 sessions
+
+starting permutation: s1_insert s2_insert s1_commit s2_commit
+step s1_insert: 
+  INSERT INTO test_table VALUES (1, 'from s1');
+
+step s2_insert: 
+  INSERT INTO test_table VALUES (2, 'from s2');
+
+step s1_commit: 
+  COMMIT;
+
+step s2_commit: 
+  COMMIT;
+
