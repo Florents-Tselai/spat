@@ -20,6 +20,9 @@ TESTS = $(wildcard test/regress/sql/*.sql)
 REGRESS = $(patsubst test/regress/sql/%.sql,%,$(TESTS))
 REGRESS_OPTS = --inputdir=test/regress --load-extension=$(EXTENSION)
 
+ISOLATION = concur1
+ISOLATION_OPTS = --inputdir=test/isolation --load-extension=$(EXTENSION)
+
 EXTRA_CLEAN = *.log dist gprof *.c.BAK *.html *.pdf *.rdb
 
 PG_CONFIG = pg_config

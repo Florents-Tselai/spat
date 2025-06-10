@@ -1,8 +1,8 @@
 # spat: Redis-like In-Memory DB Embedded in Postgres
 
-![GitHub Repo stars](https://img.shields.io/github/stars/Florents-Tselai/spat)
-[![Github](https://img.shields.io/static/v1?label=GitHub&message=Repo&logo=GitHub&color=green)](https://github.com/Florents-Tselai/spat)
-[![Build Status](https://github.com/Florents-Tselai/spat/actions/workflows/build.yml/badge.svg)](https://github.com/Florents-Tselai/spat/actions)
+[![GitHub Stars](https://img.shields.io/github/stars/Florents-Tselai/tsellm)
+[![Github](https://img.shields.io/static/v1?label=GitHub&message=Repo&logo=GitHub&color=green)](https://github.com/Florents-Tselai/tsellm)
+[![Build Status](https://github.com/Florents-Tselai/tsellm/actions/workflows/build.yml/badge.svg)](https://github.com/Florents-Tselai/tsellm/actions)
 [![Docker Pulls](https://img.shields.io/docker/pulls/florents/spat)](https://hub.docker.com/r/florents/spat)
 [![License](https://img.shields.io/github/license/Florents-Tselai/spat?color=blue)](https://github.com/Florents-Tselai/spat?tab=AGPL-3.0-1-ov-file#readme)
 
@@ -228,7 +228,7 @@ You can also install it with [Docker](#docker)
 ```sh
 docker pull florents/spat
 # or with explicit version
-docker pull florents/spat:0.1.0a4-pg17
+docker pull florents/spat:0.1.0a5-pg17
 ```
 
 ## ACID
@@ -296,18 +296,6 @@ Most use 20% of its available functionality to support the 80% of use cases.
 I aim to provide Redis-like semantics and data structures within SQL,
 offering good enough functionality to support that critical 20% of use cases.
 This approach simplifies state and data sharing across queries without the need to manage a separate cache service alongside the primary database.
-
-## Background
-
-Spat relies on the two following features of Postgres
-
-- PG10 Introduced dynamic shared memory areas (DSA) in [13df76a](https://github.com/postgres/postgres/commit/13df76a)
-- PG17 Introduced the dynamic shared memory registry in [8b2bcf3](https://github.com/postgres/postgres/commit/8b2bcf3)
-
-Internally, it stores its data in a `dshash`:
-This is an open hashing hash table with a linked list at each table entry.
-It supports dynamic resizing to prevent the linked lists from growing too long on average.
-Currently, only growing is supported: the hash table never becomes smaller.
 
 ## FAQ
 
