@@ -18,6 +18,20 @@
 #include "utils/jsonb.h"
 #include "common/hashfn.h"
 
+/* -------------------- Named DSM Hash --------------------
+ * PostgreSQL 19+ provides GetNamedDSMHash() as part of the DSM registry.
+ * For PostgreSQL 17/18 we fall back to a locally implemented version
+ * that mirrors the same semantics.
+ */
+#if PG_VERSION_NUM >= 190000
+#define SPAT_GET_NAMED_DSM_HASH GetNamedDSMHash
+#else
+extern dshash_table *spat_get_named_dsm_hash(const char *name,
+                                             const dshash_parameters *params,
+                                             bool *found);
+#define SPAT_GET_NAMED_DSM_HASH spat_get_named_dsm_hash
+#endif
+
 /* -------------------- DSS --------------------
  * A Dynamicaly-Shared String (DSS) is a null-terminated char* stored in a DSA
  */
