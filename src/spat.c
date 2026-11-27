@@ -585,8 +585,8 @@ spset_generic(PG_FUNCTION_ARGS)
     dss key = PG_GETARG_DSS(0);
     Datum value = PG_GETARG_DATUM(1);
     Interval* ex = PG_ARGISNULL(2) ? NULL : PG_GETARG_INTERVAL_P(2);
-    bool nx = PG_ARGISNULL(3) ? NULL : PG_GETARG_BOOL(3);
-    bool xx = PG_ARGISNULL(4) ? NULL : PG_GETARG_BOOL(4);
+    bool nx = !PG_ARGISNULL(3) && PG_GETARG_BOOL(3);
+    bool xx = !PG_ARGISNULL(4) && PG_GETARG_BOOL(4);
 
     /* Info about value */
     bool valueIsNull = PG_ARGISNULL(1);
